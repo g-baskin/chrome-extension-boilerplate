@@ -14,6 +14,8 @@
  *   const data = await getStorage("myFeature"); // typed!
  */
 
+import { CapturedPageEntry, CAPTURE_HISTORY_LIMIT } from "@/lib/capture";
+
 export interface StorageSchema {
   // Extension settings - add your settings here
   settings: {
@@ -26,6 +28,8 @@ export interface StorageSchema {
     lastVisit: number;
     visitCount: number;
   };
+  // Captured Skool pages stored for later downloads
+  captureHistory: CapturedPageEntry[];
   // Add more storage keys here as needed:
   // myFeature: { ... };
 }
@@ -70,6 +74,37 @@ export async function setStorage<K extends StorageKey>(
       resolve(true);
     });
   });
+}
+
+/**
+ * Append a new capture entry to history (limited to CAPTURE_HISTORY_LIMIT)
+ */
+export async function appendCaptureEntry(
+  entry: CapturedPageEntry
+): Promise<boolean> {
+  const history = (await getStorage("captureHistory")) ?? [];
+  const entries = [entry, ...history].slice(0, CAPTURE_HISTORY_LIMIT);
+  return setStorage("captureHistory", entries);
+}
+
+export async function getCaptureHistory(): Promise<CapturedPageEntry[]> {
+  return (await getStorage("captureHistory")) ?? [];
+}
+
+export async function getCaptureEntryById(
+  id: string
+): Promise<CapturedPageEntry | undefined> {
+  const history = await getCaptureHistory();
+  return history.find((entry) => entry.id === id);
+}
+
+/**
+ * Remove a capture entry by ID
+ */
+export async function deleteCaptureEntry(id: string): Promise<boolean> {
+  const history = (await getStorage("captureHistory")) ?? [];
+  const entries = history.filter((entry) => entry.id !== id);
+  return setStorage("captureHistory", entries);
 }
 
 /**
@@ -153,6 +188,8 @@ export const defaultUserData: StorageSchema["userData"] = {
   visitCount: 0,
 };
 
+export const defaultCaptureHistory: StorageSchema["captureHistory"] = [];
+
 /**
  * Initialize storage with default values if not set
  * Call this in background script on install
@@ -166,5 +203,10 @@ export async function initializeStorage(): Promise<void> {
   const userData = await getStorage("userData");
   if (!userData) {
     await setStorage("userData", defaultUserData);
+  }
+
+  const captureHistory = await getStorage("captureHistory");
+  if (!captureHistory) {
+    await setStorage("captureHistory", defaultCaptureHistory);
   }
 }

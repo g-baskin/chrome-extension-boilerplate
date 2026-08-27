@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { sendToBackground } from "@/lib/messaging";
 import { onStorageChange, clearStorage } from "@/lib/storage";
+import { downloadDataAsFile } from "@/lib/download";
+import type { CaptureMetadata, CapturedPageEntry } from "@/lib/capture";
 
 interface Settings {
   enabled: boolean;
@@ -8,19 +10,29 @@ interface Settings {
   notifications: boolean;
 }
 
+interface CaptureHistoryRow extends CaptureMetadata {
+  id: string;
+}
+
 export function Options() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [history, setHistory] = useState<CaptureHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     loadSettings();
+    loadCaptureHistory();
 
-    // Listen for storage changes
     const unsubscribe = onStorageChange((changes) => {
       if (changes["settings"]) {
         setSettings(changes["settings"].newValue as Settings);
+      }
+      if (changes["captureHistory"]) {
+        const captures = (changes["captureHistory"].newValue as CapturedPageEntry[]) ?? [];
+        setHistory(captures.map(({ id, markdown, html, ...meta }) => ({ id, ...meta })));
       }
     });
 
@@ -41,6 +53,20 @@ export function Options() {
     }
   }
 
+  async function loadCaptureHistory() {
+    setHistoryLoading(true);
+    try {
+      const response = await sendToBackground("GET_CAPTURE_HISTORY", undefined);
+      if (response.success && response.data) {
+        setHistory(response.data.entries);
+      }
+    } catch (error) {
+      console.error("Failed to load capture history:", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function updateSetting<K extends keyof Settings>(
     key: K,
     value: Settings[K]
@@ -57,7 +83,7 @@ export function Options() {
       setTimeout(() => setSaved(false), 2000);
     } catch (error) {
       console.error("Failed to save setting:", error);
-      setSettings(settings); // Revert on error
+      setSettings(settings);
     } finally {
       setSaving(false);
     }
@@ -81,7 +107,27 @@ export function Options() {
     }
   }
 
-  if (loading) {
+  async function downloadCapture(id: string, type: "markdown" | "html") {
+    const response = await sendToBackground("GET_CAPTURE_ENTRY", { id });
+    if (!response.success || !response.data?.entry) {
+      alert("Failed to load capture entry.");
+      return;
+    }
+
+    const entry = response.data.entry;
+    const payload = type === "markdown" ? entry.markdown : entry.html;
+    const extension = type === "markdown" ? "md" : "html";
+    downloadDataAsFile(`${entry.title || entry.url}.${extension}`, payload, type === "markdown" ? "text/markdown" : "text/html");
+  }
+
+  async function removeCapture(id: string) {
+    const response = await sendToBackground("DELETE_CAPTURE", { id });
+    if (response.success) {
+      setHistory((prev) => prev.filter((item) => item.id !== id));
+    }
+  }
+
+  if (loading || historyLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -91,27 +137,20 @@ export function Options() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
+      <div className="max-w-3xl mx-auto space-y-8">
+        <div>
           <h1 className="text-3xl font-bold text-gray-900">Extension Settings</h1>
           <p className="mt-2 text-gray-600">
-            Configure your Chrome extension preferences
+            Configure your Chrome extension preferences and review captured Skool pages.
           </p>
         </div>
 
-        {/* Settings Card */}
         <div className="bg-white shadow rounded-lg divide-y divide-gray-200">
-          {/* Enable/Disable */}
           <div className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  Enable Extension
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Toggle the extension on or off globally
-                </p>
+                <h3 className="text-lg font-medium text-gray-900">Enable Extension</h3>
+                <p className="text-sm text-gray-500">Toggle the extension on or off globally</p>
               </div>
               <button
                 onClick={() => updateSetting("enabled", !settings?.enabled)}
@@ -129,12 +168,9 @@ export function Options() {
             </div>
           </div>
 
-          {/* Theme Selection */}
           <div className="p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-1">Theme</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Choose your preferred color theme
-            </p>
+            <p className="text-sm text-gray-500 mb-4">Choose your preferred color theme</p>
             <div className="grid grid-cols-3 gap-3">
               {(["light", "dark", "system"] as const).map((theme) => (
                 <button
@@ -153,21 +189,14 @@ export function Options() {
             </div>
           </div>
 
-          {/* Notifications */}
           <div className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  Notifications
-                </h3>
-                <p className="text-sm text-gray-500">
-                  Receive notifications from the extension
-                </p>
+                <h3 className="text-lg font-medium text-gray-900">Notifications</h3>
+                <p className="text-sm text-gray-500">Receive notifications from the extension</p>
               </div>
               <button
-                onClick={() =>
-                  updateSetting("notifications", !settings?.notifications)
-                }
+                onClick={() => updateSetting("notifications", !settings?.notifications)}
                 disabled={saving}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   settings?.notifications ? "bg-primary-600" : "bg-gray-300"
@@ -182,14 +211,65 @@ export function Options() {
             </div>
           </div>
 
-          {/* Reset Settings */}
           <div className="p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-1">
-              Reset Settings
-            </h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Captured Skool Pages</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Restore all settings to their default values
+              View the history of recorded Skool posts. Download or delete entries as needed.
             </p>
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-500">No captures yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {history.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-4 border border-gray-200 rounded-lg bg-gray-50"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {item.title || item.url}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Captured {new Date(item.capturedAt).toLocaleString()}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {item.authors.join(", ")} · {item.postCount} posts · {item.wordCount} words
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => downloadCapture(item.id, "markdown")}
+                          className="px-3 py-1 text-xs font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700"
+                        >
+                          Download MD
+                        </button>
+                        <button
+                          onClick={() => downloadCapture(item.id, "html")}
+                          className="px-3 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-100"
+                        >
+                          Download HTML
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
+                      <span>Links: {item.linkCount}</span>
+                      <button
+                        onClick={() => removeCapture(item.id)}
+                        className="text-red-600 hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Reset Settings</h3>
+            <p className="text-sm text-gray-500 mb-4">Restore all settings to their default values</p>
             <button
               onClick={handleResetSettings}
               disabled={saving}
@@ -200,38 +280,14 @@ export function Options() {
           </div>
         </div>
 
-        {/* Save Indicator */}
         {saved && (
-          <div className="mt-4 p-3 text-sm text-center text-green-700 bg-green-50 rounded-lg animate-fade-in">
+          <div className="p-3 text-sm text-center text-green-700 bg-green-50 rounded-lg animate-fade-in">
             Settings saved successfully!
           </div>
         )}
 
-        {/* Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-500">
-            Chrome Extension Boilerplate v{chrome.runtime.getManifest().version}
-          </p>
-          <p className="text-xs text-gray-400 mt-1">
-            Created by Ken Kai |{" "}
-            <a
-              href="https://www.youtube.com/@kenkaidoesai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary-600 hover:underline"
-            >
-              YouTube
-            </a>{" "}
-            |{" "}
-            <a
-              href="https://www.skool.com/kenkai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary-600 hover:underline"
-            >
-              Skool
-            </a>
-          </p>
+        <div className="text-center text-sm text-gray-500">
+          Chrome Extension Boilerplate v{chrome.runtime.getManifest().version}
         </div>
       </div>
     </div>

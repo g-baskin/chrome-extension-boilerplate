@@ -1,21 +1,23 @@
-# Chrome Extension Boilerplate - Development Guide
+# Chrome Extensions Monorepo - Development Guide
 
-This is a production-ready Chrome Extension boilerplate using Manifest V3, TypeScript, React, Vite, and Tailwind CSS.
+Read CONTEXT.md before naming anything.
+
+This npm-workspaces monorepo contains independently buildable Chrome extensions. Dev Toolz uses Manifest V3, TypeScript, React, Vite, and Tailwind CSS. Paths below are relative to `apps/dev-toolz/` unless stated otherwise.
 
 ## Project Structure
 
 ```
-├── src/
-│   ├── background/index.ts    # Service worker - runs in background
-│   ├── content/index.ts       # Content script - runs on web pages
-│   ├── popup/                 # Popup UI (React) - toolbar icon click
-│   ├── options/               # Options page (React) - extension settings
-│   └── lib/
-│       ├── storage.ts         # Type-safe Chrome storage
-│       └── messaging.ts       # Type-safe message passing
-├── public/icons/              # Extension icons (16, 32, 48, 128px)
-├── manifest.json              # Chrome extension manifest (MV3)
-└── vite.config.ts             # Build configuration
+apps/
+└── dev-toolz/
+    ├── src/
+    │   ├── background/index.ts    # Service worker
+    │   ├── content/index.ts       # Content script
+    │   ├── popup/                 # Popup UI
+    │   ├── options/               # Options page
+    │   └── lib/                   # Extension utilities
+    ├── public/icons/              # Extension icons
+    ├── manifest.json              # Manifest V3 configuration
+    └── vite.config.ts             # Vite configuration
 ```
 
 ## Architecture Overview
@@ -266,7 +268,9 @@ npm run typecheck # TypeScript check
 2. Open `chrome://extensions/`
 3. Enable "Developer mode"
 4. Click "Load unpacked"
-5. Select the `dist` folder
+5. Select the `apps/dev-toolz/dist` folder
+
+After every Dev Toolz version bump, run `npm run build:dev-toolz` and verify `apps/dev-toolz/dist/manifest.json` contains the new version before asking the user to reload Chrome.
 
 ## Common Patterns
 

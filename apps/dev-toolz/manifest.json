@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Chrome Extension Boilerplate",
-  "version": "1.0.0",
-  "description": "A production-ready Chrome extension boilerplate with TypeScript and React",
+  "name": "Dev Toolz",
+  "version": "1.1.6",
+  "minimum_chrome_version": "118",
+  "description": "Developer utilities including persistent API traffic inspection",
   "icons": {
     "16": "public/icons/icon-16.png",
     "32": "public/icons/icon-32.png",
@@ -17,8 +18,9 @@
       "48": "public/icons/icon-48.png",
       "128": "public/icons/icon-128.png"
     },
-    "default_title": "Chrome Extension Boilerplate"
+    "default_title": "Dev Toolz"
   },
+  "devtools_page": "src/devtools/devtools-page.html",
   "options_ui": {
     "page": "src/options/options.html",
     "open_in_tab": true
@@ -36,7 +38,11 @@
   ],
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "activeTab",
+    "tabs",
+    "webNavigation",
+    "debugger",
     "scripting",
     "contextMenus"
   ],

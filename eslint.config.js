@@ -26,6 +26,7 @@ export default [
       "@typescript-eslint": tseslint,
     },
     rules: {
+      "no-undef": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "warn",
@@ -36,6 +37,6 @@ export default [
     },
   },
   {
-    ignores: ["dist/**", "node_modules/**"],
+    ignores: ["**/dist/**", "node_modules/**"],
   },
 ];

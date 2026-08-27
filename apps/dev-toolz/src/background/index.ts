@@ -5,13 +5,24 @@
 
 import { createMessageHandler } from "@/lib/messaging";
 import {
+  appendCaptureEntry,
+  deleteCaptureEntry,
+  getCaptureEntryById,
+  getCaptureHistory,
   getStorage,
-  setStorage,
   initializeStorage,
+  setStorage,
   defaultSettings,
 } from "@/lib/storage";
+import type { CapturedPageSummary } from "@/lib/capture";
+import {
+  captureActiveTab,
+  captureTab,
+  stopApiTrafficCapture,
+} from "./api-traffic-capture";
 
 console.log("[Background] Service worker started");
+void syncApiTrafficCapture();
 
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -39,6 +50,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 chrome.runtime.onStartup.addListener(async () => {
   console.log("[Background] Extension started");
   await initializeStorage();
+  await syncApiTrafficCapture();
 });
 
 // Set up message handlers
@@ -60,12 +72,15 @@ createMessageHandler({
     const currentSettings = (await getStorage("settings")) ?? defaultSettings;
     const newSettings = { ...currentSettings, ...payload };
     await setStorage("settings", newSettings);
+    if (payload.enabled !== undefined) await syncApiTrafficCapture();
     return { success: true };
   },
 
   TOGGLE_EXTENSION: async (payload) => {
     const currentSettings = (await getStorage("settings")) ?? defaultSettings;
     await setStorage("settings", { ...currentSettings, enabled: payload.enabled });
+    if (payload.enabled) await captureActiveTab();
+    else await stopApiTrafficCapture();
 
     // Notify all tabs about the state change
     const tabs = await chrome.tabs.query({});
@@ -85,9 +100,46 @@ createMessageHandler({
     return { success: true };
   },
 
+  DEVTOOLS_CLOSED: async ({ tabId }) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const [tab, settings] = await Promise.all([
+      chrome.tabs.get(tabId),
+      getStorage("settings"),
+    ]);
+    if (tab.active && settings?.enabled) {
+      await captureTab(tabId, tab.url ?? "").catch(() => undefined);
+    }
+    return { success: true };
+  },
+
   CONTENT_ACTION: async (payload) => {
     console.log("[Background] Content action received:", payload);
     return { success: true, result: payload.data };
+  },
+
+  SAVE_CAPTURE: async ({ entry }) => {
+    const success = await appendCaptureEntry(entry);
+    return { success };
+  },
+
+  GET_CAPTURE_HISTORY: async () => {
+    const history = await getCaptureHistory();
+    const entries: CapturedPageSummary[] = history.map(({ id, markdown, html, ...metadata }) => ({
+      id,
+      ...metadata,
+    }));
+
+    return { entries };
+  },
+
+  GET_CAPTURE_ENTRY: async ({ id }) => {
+    const entry = await getCaptureEntryById(id);
+    return { entry };
+  },
+
+  DELETE_CAPTURE: async ({ id }) => {
+    const success = await deleteCaptureEntry(id);
+    return { success };
   },
 });
 
@@ -110,16 +162,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Handle tab updates (optional)
-chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo, tab) => {
-  if (changeInfo.status === "complete" && tab.url) {
-    const settings = await getStorage("settings");
-    if (settings?.enabled) {
-      // Perform action when tab loads
-      console.log("[Background] Tab loaded:", tab.url);
-    }
-  }
+chrome.tabs.onActivated.addListener(() => {
+  void syncApiTrafficCapture();
 });
+
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  void chrome.tabs
+    .get(details.tabId)
+    .then((tab) => {
+      if (tab.active) return syncApiTrafficCapture();
+    })
+    .catch(() => undefined);
+});
+
+async function syncApiTrafficCapture(): Promise<void> {
+  const settings = (await getStorage("settings")) ?? defaultSettings;
+  if (settings.enabled) await captureActiveTab().catch(() => undefined);
+  else await stopApiTrafficCapture();
+}
 
 // Keep service worker alive for long-running tasks (use sparingly)
 // chrome.alarms.create("keepAlive", { periodInMinutes: 0.5 });

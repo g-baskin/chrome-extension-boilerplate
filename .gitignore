@@ -33,3 +33,7 @@ yarn-error.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# GG Coder working files
+.gg/generated/
+.gg/plans/

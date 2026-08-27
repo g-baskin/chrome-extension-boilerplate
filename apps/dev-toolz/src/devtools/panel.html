@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dev Toolz API Traffic</title>
+    <link rel="stylesheet" href="./devtools.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>API traffic</h1>
+        <p>Inspect outgoing requests and incoming responses.</p>
+      </div>
+      <div class="header-actions">
+        <span id="request-count" aria-live="polite">0 captured</span>
+        <button
+          id="group-duplicates"
+          type="button"
+          aria-pressed="false"
+          title="Group matching method and URL requests started within 10 seconds"
+          disabled
+        >
+          Group duplicates
+        </button>
+        <button id="export-responses" type="button" disabled>Export all</button>
+        <button id="clear-responses" type="button">Clear</button>
+      </div>
+    </header>
+    <form id="traffic-filters" class="filters">
+      <label>
+        Domain
+        <input id="filter-domain" type="search" placeholder="api.example.com" />
+      </label>
+      <label>
+        Method
+        <select id="filter-method">
+          <option value="">All</option>
+          <option>GET</option>
+          <option>HEAD</option>
+          <option>POST</option>
+          <option>PUT</option>
+          <option>PATCH</option>
+          <option>DELETE</option>
+          <option>OPTIONS</option>
+        </select>
+      </label>
+      <label>
+        Status
+        <select id="filter-status">
+          <option value="">All</option>
+          <option value="failed">Failed</option>
+          <option value="2xx">2xx</option>
+          <option value="3xx">3xx</option>
+          <option value="4xx">4xx</option>
+          <option value="5xx">5xx</option>
+        </select>
+      </label>
+      <label>
+        MIME type
+        <input id="filter-mime" type="search" placeholder="application/json" />
+      </label>
+      <button type="submit">Apply</button>
+      <button id="reset-filters" type="button">Reset</button>
+    </form>
+    <main id="request-list">
+      <p id="empty-state">Capturing active-tab API traffic automatically…</p>
+    </main>
+    <button id="load-older" class="load-older" type="button" hidden>Load older</button>
+    <script type="module" src="./devtools.ts"></script>
+  </body>
+</html>
