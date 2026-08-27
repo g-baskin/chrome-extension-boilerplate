@@ -5,6 +5,7 @@ export type ApiBody =
   | { kind: "text"; raw: string };
 
 export type ApiTrafficFilters = {
+  pageHostname: string | null;
   domain: string;
   method: string;
   status: "" | "failed" | "2xx" | "3xx" | "4xx" | "5xx";
@@ -155,22 +156,18 @@ export function matchesApiTraffic(
   exchange: ApiExchange,
   filters: ApiTrafficFilters
 ): boolean {
+  const pageMatches =
+    filters.pageHostname === null ||
+    (filters.pageHostname !== "" && getHostname(exchange.pageUrl) === filters.pageHostname);
   const methodMatches = !filters.method || exchange.request.method === filters.method;
   const mimeFilter = filters.mimeType.toLowerCase();
   const mimeMatches =
     !mimeFilter ||
     exchange.response.mimeType.toLowerCase().includes(mimeFilter) ||
     exchange.request.mimeType?.toLowerCase().includes(mimeFilter) === true;
-  let domainMatches = true;
-  if (filters.domain) {
-    try {
-      domainMatches = new URL(exchange.request.url).hostname
-        .toLowerCase()
-        .includes(filters.domain.toLowerCase());
-    } catch {
-      domainMatches = false;
-    }
-  }
+  const requestHostname = getHostname(exchange.request.url);
+  const domainMatches =
+    !filters.domain || requestHostname.includes(filters.domain.toLowerCase());
   const status = exchange.response.status;
   const statusMatches =
     !filters.status ||
@@ -179,7 +176,16 @@ export function matchesApiTraffic(
     (filters.status === "3xx" && status >= 300 && status < 400) ||
     (filters.status === "4xx" && status >= 400 && status < 500) ||
     (filters.status === "5xx" && status >= 500 && status < 600);
-  return methodMatches && mimeMatches && domainMatches && statusMatches;
+  return pageMatches && methodMatches && mimeMatches && domainMatches && statusMatches;
+}
+
+function getHostname(rawUrl: string | undefined): string {
+  if (!rawUrl) return "";
+  try {
+    return new URL(rawUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 export async function getAllApiTraffic(): Promise<ApiExchange[]> {

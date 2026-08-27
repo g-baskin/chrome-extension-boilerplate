@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-08-26
+
+### Added
+
+- API traffic defaults to the inspected page while retaining an immediate `All history` switch for persisted traffic from previously active pages.
+
 ## [1.1.6] - 2026-08-26
 
 ### Fixed
@@ -80,7 +86,8 @@ Dev Toolz can now record and inspect active-tab API traffic before DevTools open
 
 - Initial Dev Toolz Chrome extension with page capture, popup controls, downloads, and extension settings.
 
-[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.6...HEAD
+[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.7...HEAD
+[1.1.7]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.6...v1.1.7
 [1.1.6]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.5...v1.1.6
 [1.1.5]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.3...v1.1.4

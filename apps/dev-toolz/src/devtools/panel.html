@@ -29,7 +29,14 @@
     </header>
     <form id="traffic-filters" class="filters">
       <label>
-        Domain
+        History
+        <select id="filter-scope">
+          <option value="current">Current page</option>
+          <option value="all">All history</option>
+        </select>
+      </label>
+      <label>
+        API domain
         <input id="filter-domain" type="search" placeholder="api.example.com" />
       </label>
       <label>

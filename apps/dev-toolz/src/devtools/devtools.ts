@@ -31,6 +31,7 @@ const exportResponses = requireButton("export-responses");
 const groupDuplicates = requireButton("group-duplicates");
 const loadOlder = requireButton("load-older");
 const filterForm = requireForm("traffic-filters");
+const scopeFilter = requireSelect("filter-scope");
 const domainFilter = requireInput("filter-domain");
 const methodFilter = requireSelect("filter-method");
 const statusFilter = requireSelect("filter-status");
@@ -38,6 +39,7 @@ const mimeFilter = requireInput("filter-mime");
 const resetFilters = requireButton("reset-filters");
 let totalCount = 0;
 let oldestSequence: number | null = null;
+let currentPageHostname = "";
 let activeFilters = readFilters();
 let displayedExchanges: ApiExchange[] = [];
 let groupingEnabled = false;
@@ -98,6 +100,11 @@ loadOlder.addEventListener("click", () => {
   void loadNextPage();
 });
 
+scopeFilter.addEventListener("change", () => {
+  activeFilters = readFilters();
+  void resetDisplayedTraffic();
+});
+
 filterForm.addEventListener("submit", (event) => {
   event.preventDefault();
   activeFilters = readFilters();
@@ -110,7 +117,17 @@ resetFilters.addEventListener("click", () => {
   void resetDisplayedTraffic();
 });
 
+chrome.devtools.network.onNavigated.addListener((url) => {
+  currentPageHostname = getHostname(url);
+  if (scopeFilter.value === "current") {
+    activeFilters = readFilters();
+    void resetDisplayedTraffic();
+  }
+});
+
 async function initializePanel(): Promise<void> {
+  currentPageHostname = await getInspectedPageHostname();
+  activeFilters = readFilters();
   totalCount = await countApiTraffic();
   updateCount();
   exportResponses.disabled = totalCount === 0;
@@ -142,6 +159,7 @@ async function resetDisplayedTraffic(): Promise<void> {
 function readFilters(): ApiTrafficFilters {
   const status = statusFilter.value;
   return {
+    pageHostname: scopeFilter.value === "current" ? currentPageHostname : null,
     domain: domainFilter.value.trim(),
     method: methodFilter.value,
     status:
@@ -150,6 +168,25 @@ function readFilters(): ApiTrafficFilters {
         : "",
     mimeType: mimeFilter.value.trim(),
   };
+}
+
+function getInspectedPageHostname(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
+      resolve(!exceptionInfo && typeof result === "string" ? getHostname(result) : "");
+    });
+  });
+}
+
+function getHostname(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.hostname.toLowerCase()
+      : "";
+  } catch {
+    return "";
+  }
 }
 
 function renderDisplayedTraffic(): void {
@@ -374,7 +411,7 @@ function getTokenClass(token: string): string {
 }
 
 function updateCount(): void {
-  requestCount.textContent = `${totalCount} captured`;
+  requestCount.textContent = `${totalCount} stored`;
 }
 
 function isCapturedMessage(

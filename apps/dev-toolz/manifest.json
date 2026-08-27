@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "minimum_chrome_version": "118",
   "description": "Developer utilities including persistent API traffic inspection",
   "icons": {
