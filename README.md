@@ -54,6 +54,14 @@ package.json                # Workspace commands and membership
 
 Each extension owns its manifest, permissions, assets, source, configuration, and `dist` output. Add another extension as a sibling under `apps/` with its own unique workspace name and development port.
 
+## Dev Toolz capabilities
+
+- Inspect persistent HTTP, GraphQL, WebSocket, SSE, WebTransport, and media traffic.
+- Export a conservative observed OpenAPI 3.1 draft and compare a local JSON baseline.
+- Save captured same-origin request flows and manually run a 2–10 request synchronized race.
+- Race replay strips sensitive headers, blocks cross-origin requests and redirects, and caps responses.
+- Use active testing only on sites you own or are authorized to assess.
+
 ## Load Dev Toolz in Chrome
 
 1. Run `npm run dev` or `npm run build:dev-toolz`.

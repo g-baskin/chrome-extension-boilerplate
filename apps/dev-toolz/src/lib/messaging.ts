@@ -1,3 +1,6 @@
+import type { RaceFlow } from "./race-flow";
+import type { RaceRunResult } from "../background/race-runner";
+
 export interface MessageTypes {
   TOGGLE_EXTENSION: {
     request: { enabled: boolean };
@@ -42,6 +45,22 @@ export interface MessageTypes {
   SET_API_CAPTURE_PAUSE: {
     request: { tabId: number; durationMs: 0 | 300000 | 900000 | 3600000 | null };
     response: { hostname: string; paused: boolean; pausedUntil: number | null };
+  };
+
+  RUN_RACE_FLOW: {
+    request: {
+      tabId: number;
+      runId: string;
+      expectedPageUrl: string;
+      flow: RaceFlow;
+      concurrency: number;
+    };
+    response: RaceRunResult;
+  };
+
+  CANCEL_RACE_FLOW: {
+    request: { tabId: number; runId: string };
+    response: { cancelled: boolean };
   };
 }
 

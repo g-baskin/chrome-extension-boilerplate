@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-28
+
+### Added
+
+- Added a live Protocol Explorer for GraphQL HTTP, WebSocket, SSE, and WebTransport lifecycle traffic.
+- Added an observed OpenAPI 3.1 draft exporter with local baseline drift comparison.
+- Added locally saved business flows and bounded synchronized Race Lab replay.
+- Added parser, IndexedDB migration, spec inference, replay validation, and synchronization tests.
+
+### Security
+
+- Race Lab requires explicit confirmation and only replays captured requests to the inspected page origin.
+- Sensitive, redacted, unsupported, oversized, redirected, stale, and disallowed requests fail closed.
+- Active runs are manual, limited to 2–10 concurrent requests, cancellable, and response-capped.
+
+### Notes
+
+- Protocol and OpenAPI output is best-effort observed evidence, not proof of API completeness.
+- Race Lab is for sites the operator owns or is authorized to test.
+
 ## [1.1.23] - 2026-08-28
 
 ### Added

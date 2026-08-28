@@ -1,3 +1,9 @@
+import {
+  API_TRAFFIC_STORE,
+  openTrafficDatabase,
+  PROTOCOL_EVENTS_STORE,
+} from "./traffic-database";
+
 export type ApiHeader = { name: string; value: string };
 export type MediaKind =
   | "manifest"
@@ -67,9 +73,8 @@ export type ApiExchange = {
   };
 };
 
-const DATABASE_NAME = "dev-toolz";
-const STORE_NAME = "api-traffic";
-const REDACTED = "<redacted>";
+const STORE_NAME = API_TRAFFIC_STORE;
+export const REDACTED = "<redacted>";
 const SENSITIVE_NAME_REGEX =
   /(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key)/i;
 const SENSITIVE_QUERY_NAME_REGEX =
@@ -218,7 +223,7 @@ export function redactJson(value: unknown): unknown {
 }
 
 export async function saveApiExchange(exchange: ApiExchange): Promise<ApiExchange> {
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite");
     const request = transaction.objectStore(STORE_NAME).add(exchange);
@@ -243,7 +248,7 @@ export async function getApiTrafficPage(
   limit: number,
   filters: ApiTrafficFilters
 ): Promise<ApiExchange[]> {
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
     const records: ApiExchange[] = [];
     const transaction = database.transaction(STORE_NAME, "readonly");
@@ -406,7 +411,7 @@ function isSentryTelemetry(rawUrl: string): boolean {
 }
 
 export async function getAllApiTraffic(): Promise<ApiExchange[]> {
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const request = transaction.objectStore(STORE_NAME).getAll();
@@ -417,8 +422,19 @@ export async function getAllApiTraffic(): Promise<ApiExchange[]> {
   });
 }
 
+export async function getApiTrafficBySequence(sequence: number): Promise<ApiExchange | undefined> {
+  const database = await openTrafficDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const request = transaction.objectStore(STORE_NAME).get(sequence);
+    request.onsuccess = () => resolve(request.result as ApiExchange | undefined);
+    request.onerror = () => reject(request.error ?? new Error("Could not read captured exchange"));
+    transaction.oncomplete = () => database.close();
+  });
+}
+
 export async function countApiTraffic(): Promise<number> {
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const request = transaction.objectStore(STORE_NAME).count();
@@ -431,7 +447,7 @@ export async function countApiTraffic(): Promise<number> {
 
 export async function countApiTrafficForPage(pageHostname: string): Promise<number> {
   const normalizedHostname = pageHostname.toLowerCase();
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
     let count = 0;
     const transaction = database.transaction(STORE_NAME, "readonly");
@@ -456,15 +472,26 @@ export async function countApiTrafficForPage(pageHostname: string): Promise<numb
 
 export async function clearApiTrafficForPage(pageHostname: string): Promise<void> {
   const normalizedHostname = pageHostname.toLowerCase();
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const transaction = database.transaction(
+      [STORE_NAME, PROTOCOL_EVENTS_STORE],
+      "readwrite"
+    );
     const request = transaction.objectStore(STORE_NAME).openCursor();
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor) return;
       const exchange = cursor.value as ApiExchange;
       if (getHostname(exchange.pageUrl) === normalizedHostname) cursor.delete();
+      cursor.continue();
+    };
+    const protocolRequest = transaction.objectStore(PROTOCOL_EVENTS_STORE).openCursor();
+    protocolRequest.onsuccess = () => {
+      const cursor = protocolRequest.result;
+      if (!cursor) return;
+      const event = cursor.value as { pageUrl?: string };
+      if (getHostname(event.pageUrl) === normalizedHostname) cursor.delete();
       cursor.continue();
     };
     transaction.oncomplete = () => {
@@ -479,10 +506,14 @@ export async function clearApiTrafficForPage(pageHostname: string): Promise<void
 }
 
 export async function clearApiTraffic(): Promise<void> {
-  const database = await openDatabase();
+  const database = await openTrafficDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const transaction = database.transaction(
+      [STORE_NAME, PROTOCOL_EVENTS_STORE],
+      "readwrite"
+    );
     transaction.objectStore(STORE_NAME).clear();
+    transaction.objectStore(PROTOCOL_EVENTS_STORE).clear();
     transaction.oncomplete = () => {
       database.close();
       resolve();
@@ -574,18 +605,3 @@ function decodeContent(content: string, encoding: string): string {
   }
 }
 
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE_NAME)) {
-        request.result.createObjectStore(STORE_NAME, {
-          keyPath: "sequence",
-          autoIncrement: true,
-        });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Could not open traffic database"));
-  });
-}

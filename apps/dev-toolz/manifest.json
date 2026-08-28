@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.1.23",
+  "version": "1.2.0",
   "minimum_chrome_version": "118",
-  "description": "Persistent API and media traffic inspection for developers",
+  "description": "API traffic, protocol, spec drift, and bounded race inspection for developers",
   "icons": {
     "16": "public/icons/icon-16.png",
     "32": "public/icons/icon-32.png",
@@ -29,7 +29,8 @@
     "service_worker": "src/background/index.ts",
     "type": "module"
   },
-  "permissions": ["storage", "unlimitedStorage", "tabs", "alarms", "debugger"],
+  "permissions": ["storage", "unlimitedStorage", "tabs", "alarms", "debugger", "scripting"],
+  "host_permissions": ["<all_urls>"],
   "web_accessible_resources": [
     {
       "resources": ["public/register-panel.js"],

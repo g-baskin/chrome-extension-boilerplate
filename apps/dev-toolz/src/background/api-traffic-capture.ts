@@ -10,6 +10,12 @@ import {
   type ApiExchange,
   type ApiHeader,
 } from "@/lib/api-traffic";
+import {
+  createProtocolEvent,
+  saveProtocolEvent,
+  type ProtocolEvent,
+  type ProtocolTransport,
+} from "@/lib/protocol-traffic";
 
 const PROTOCOL_VERSION = "1.3";
 const ATTACHED_TAB_KEY = "apiTrafficAttachedTab";
@@ -29,6 +35,7 @@ type PendingRequest = {
 };
 
 const pendingRequests = new Map<string, PendingRequest>();
+const protocolSessions = new Map<string, { url: string; transport: ProtocolTransport }>();
 const capturedTabUrls = new Map<number, string>();
 let captureOperation: Promise<void> = Promise.resolve();
 
@@ -46,6 +53,9 @@ chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === undefined) return;
   for (const [key, pending] of pendingRequests) {
     if (pending.tabId === source.tabId) pendingRequests.delete(key);
+  }
+  for (const key of protocolSessions.keys()) {
+    if (key.startsWith(`${source.tabId}:`)) protocolSessions.delete(key);
   }
   capturedTabUrls.delete(source.tabId);
   void chrome.storage.session.get(ATTACHED_TAB_KEY).then((stored) => {
@@ -131,6 +141,7 @@ async function stopApiTrafficCaptureNow(): Promise<void> {
   }
   await chrome.storage.session.remove(ATTACHED_TAB_KEY);
   pendingRequests.clear();
+  protocolSessions.clear();
   capturedTabUrls.clear();
 }
 
@@ -149,6 +160,11 @@ async function handleDebuggerEvent(
   const requestId = readString(params, "requestId");
   if (!requestId) return;
   const key = `${tabId}:${requestId}`;
+
+  if (method.startsWith("Network.webSocket") || method.startsWith("Network.webTransport") || method === "Network.eventSourceMessageReceived") {
+    await captureProtocolEvent(tabId, key, requestId, method, params);
+    return;
+  }
 
   if (method === "Network.requestWillBeSent") {
     const request = asRecord(params.request);
@@ -174,6 +190,18 @@ async function handleDebuggerEvent(
       },
       response: null,
     });
+    if (readString(params, "type") === "EventSource") {
+      protocolSessions.set(key, { url: sessionRequestUrl, transport: "sse" });
+      await persistProtocol({
+        sessionId: requestId,
+        pageUrl: capturedTabUrls.get(tabId) ?? "",
+        url: sessionRequestUrl,
+        transport: "sse",
+        kind: "created",
+        direction: "none",
+        timestamp: new Date().toISOString(),
+      });
+    }
     return;
   }
 
@@ -229,6 +257,71 @@ async function handleDebuggerEvent(
       finishedTimestamp
     );
   }
+}
+
+async function captureProtocolEvent(
+  tabId: number,
+  key: string,
+  requestId: string,
+  method: string,
+  params: Record<string, unknown>
+): Promise<void> {
+  if (method === "Network.webSocketCreated" || method === "Network.webTransportCreated") {
+    const url = readString(params, "url") ?? "";
+    const transport: ProtocolTransport = method.includes("webSocket") ? "websocket" : "webtransport";
+    protocolSessions.set(key, { url, transport });
+    await persistProtocol({
+      sessionId: requestId,
+      pageUrl: capturedTabUrls.get(tabId) ?? "",
+      url,
+      transport,
+      kind: "created",
+      direction: "none",
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const session = protocolSessions.get(key) ?? (() => {
+    const pending = pendingRequests.get(key);
+    return pending ? { url: pending.sessionRequestUrl, transport: "sse" as const } : undefined;
+  })();
+  if (!session) return;
+
+  const frame = asRecord(params.response);
+  const isSent = method === "Network.webSocketFrameSent";
+  const payload =
+    method === "Network.eventSourceMessageReceived"
+      ? readString(params, "data")
+      : method === "Network.webSocketFrameError"
+        ? readString(params, "errorMessage")
+        : readString(frame, "payloadData");
+  const kind: ProtocolEvent["kind"] =
+    method.includes("Handshake") ? "handshake" :
+    method.endsWith("ConnectionEstablished") ? "connected" :
+    method.endsWith("FrameError") ? "error" :
+    method.endsWith("Closed") ? "closed" :
+    method === "Network.eventSourceMessageReceived" ? "message" : "frame";
+  await persistProtocol({
+    sessionId: requestId,
+    pageUrl: capturedTabUrls.get(tabId) ?? "",
+    url: session.url,
+    transport: session.transport,
+    kind,
+    direction: method.includes("Frame") || method.includes("Message")
+      ? (isSent ? "sent" : "received")
+      : "none",
+    timestamp: new Date().toISOString(),
+    opcode: readNumber(frame, "opcode"),
+    eventName: readString(params, "eventName"),
+    payload,
+  });
+  if (kind === "closed") protocolSessions.delete(key);
+}
+
+async function persistProtocol(event: Parameters<typeof createProtocolEvent>[0]): Promise<void> {
+  const saved = await saveProtocolEvent(createProtocolEvent(event));
+  await chrome.runtime.sendMessage({ type: "PROTOCOL_EVENT_CAPTURED", payload: saved }).catch(() => undefined);
 }
 
 async function refreshRequestBody(pending: PendingRequest): Promise<void> {

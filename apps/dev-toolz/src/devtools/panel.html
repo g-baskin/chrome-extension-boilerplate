@@ -168,51 +168,80 @@
     <section id="red-team-section" class="tool-section" hidden>
       <header>
         <div>
-          <h1>Red Team Recon</h1>
-          <p>Map captured endpoints and inspect the evidence behind each target.</p>
+          <h1>Red Team</h1>
+          <p>Explore captured behavior and run bounded checks on authorized sites.</p>
         </div>
-        <div class="header-actions">
+      </header>
+      <nav class="section-nav red-team-nav" aria-label="Red Team tools">
+        <button id="show-recon-tool" type="button" aria-pressed="true">Recon</button>
+        <button id="show-protocols-tool" type="button" aria-pressed="false">Protocols</button>
+        <button id="show-api-map-tool" type="button" aria-pressed="false">API Map</button>
+        <button id="show-race-lab-tool" type="button" aria-pressed="false">Race Lab</button>
+      </nav>
+
+      <div id="recon-tool">
+        <div class="recon-controls">
+          <label>Evidence scope
+            <select id="recon-scope"><option value="current">Current site</option><option value="all">All captured history</option></select>
+          </label>
           <span id="recon-count" aria-live="polite">Not loaded</span>
           <button id="refresh-recon" type="button">Refresh inventory</button>
         </div>
-      </header>
-      <div class="recon-controls">
-        <label>
-          Evidence scope
-          <select id="recon-scope">
-            <option value="current">Current site</option>
-            <option value="all">All captured history</option>
-          </select>
-        </label>
-        <p>Routes group variable identifiers while preserving exact captured samples.</p>
+        <main id="recon-workspace" class="recon-workspace">
+          <p id="recon-state" class="empty-state" aria-live="polite">Open this section to build an endpoint inventory.</p>
+          <div id="recon-table-region" class="table-scroll recon-table-region" role="region" aria-label="Captured endpoint inventory" tabindex="0" hidden>
+            <table class="recon-table"><caption>Captured endpoint inventory</caption><thead><tr><th scope="col">Method</th><th scope="col">Observed route and evidence</th><th scope="col">Requests</th><th scope="col">Statuses</th><th scope="col">Input and identity signals</th></tr></thead><tbody id="recon-endpoints"></tbody></table>
+          </div>
+        </main>
       </div>
-      <main id="recon-workspace" class="recon-workspace">
-        <p id="recon-state" class="empty-state" aria-live="polite">
-          Open this section to build an endpoint inventory from captured traffic.
-        </p>
-        <div
-          id="recon-table-region"
-          class="table-scroll recon-table-region"
-          role="region"
-          aria-label="Captured endpoint inventory"
-          tabindex="0"
-          hidden
-        >
-          <table class="recon-table">
-            <caption>Captured endpoint inventory</caption>
-            <thead>
-              <tr>
-                <th scope="col">Method</th>
-                <th scope="col">Observed route and evidence</th>
-                <th scope="col">Requests</th>
-                <th scope="col">Statuses</th>
-                <th scope="col">Input and identity signals</th>
-              </tr>
-            </thead>
-            <tbody id="recon-endpoints"></tbody>
-          </table>
+
+      <div id="protocols-tool" hidden>
+        <form id="protocol-filters" class="filters">
+          <label>Scope<select id="protocol-scope"><option value="current">Current site</option><option value="all">All sites</option></select></label>
+          <label>Transport<select id="protocol-transport"><option value="">All</option><option value="graphql-http">GraphQL HTTP</option><option value="websocket">WebSocket</option><option value="sse">SSE</option><option value="webtransport">WebTransport</option></select></label>
+          <label>Direction<select id="protocol-direction"><option value="">All</option><option value="sent">Sent</option><option value="received">Received</option><option value="none">Lifecycle</option></select></label>
+          <label>Operation<input id="protocol-operation" type="search" placeholder="Operation name" /></label>
+          <label>Text<input id="protocol-text" type="search" placeholder="URL or payload" /></label>
+          <button type="submit">Apply</button>
+          <button id="export-protocols" type="button">Export JSON</button>
+        </form>
+        <p id="protocol-state" class="empty-state" aria-live="polite">Open Protocols to load captured events.</p>
+        <main id="protocol-events" class="protocol-events"></main>
+        <button id="load-older-protocols" class="load-older" type="button" hidden>Load older</button>
+      </div>
+
+      <div id="api-map-tool" hidden>
+        <div class="recon-controls">
+          <label>Scope<select id="api-map-scope"><option value="current">Current site</option><option value="all">All sites</option></select></label>
+          <label>Drift<select id="api-map-drift"><option value="">All states</option><option value="observed">Observed</option><option value="matched">Matched</option><option value="shadow">Shadow</option><option value="unseen">Unseen</option></select></label>
+          <label>Method<select id="api-map-method"><option value="">All methods</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>OPTIONS</option><option>HEAD</option></select></label>
+          <label>Hostname<input id="api-map-hostname" type="search" placeholder="api.example.com" /></label>
+          <label>Route<input id="api-map-route" type="search" placeholder="/users/{id}" /></label>
+          <label class="file-button">Import OpenAPI JSON<input id="api-map-import" type="file" accept="application/json,.json" /></label>
+          <button id="api-map-export" type="button">Export observed draft</button>
+          <button id="api-map-refresh" type="button">Refresh</button>
         </div>
-      </main>
+        <p id="api-map-state" class="empty-state" aria-live="polite">Open API Map to build an observed draft.</p>
+        <div id="api-map-region" class="table-scroll recon-table-region" role="region" aria-label="Observed API attack map" tabindex="0" hidden>
+          <table class="recon-table"><caption>Observed API attack map</caption><thead><tr><th scope="col">State</th><th scope="col">Method</th><th scope="col">Hostname and route</th><th scope="col">Requests</th><th scope="col">Observed shape</th></tr></thead><tbody id="api-map-entries"></tbody></table>
+        </div>
+      </div>
+      <div id="race-lab-tool" hidden>
+        <div class="recon-controls">
+          <label>Saved flow<select id="race-flow-select"><option value="">No saved flows</option></select></label>
+          <label>Flow name<input id="race-flow-name" type="text" maxlength="80" placeholder="Checkout flow" /></label>
+          <button id="race-flow-create" type="button">Create flow</button>
+          <button id="race-flow-rename" type="button" disabled>Rename</button>
+          <button id="race-flow-delete" type="button" disabled>Delete</button>
+          <label>Concurrency<input id="race-concurrency" type="number" min="2" max="10" step="1" value="2" /></label>
+          <button id="race-run" type="button" disabled>Review race</button>
+          <button id="race-cancel" type="button" hidden>Cancel run</button>
+        </div>
+        <p class="analysis-help">Only test sites you own or are authorized to assess. Runs stay on the inspected page origin.</p>
+        <p id="race-state" class="empty-state" aria-live="polite">Create a flow, then add captured Recon requests.</p>
+        <ol id="race-steps" class="race-steps"></ol>
+        <section id="race-results" aria-live="polite"></section>
+      </div>
     </section>
     <script type="module" src="./devtools.ts"></script>
   </body>

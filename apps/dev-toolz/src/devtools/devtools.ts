@@ -3,6 +3,7 @@ import { explainTraffic } from "../lib/traffic-explanation";
 import { sendToBackground } from "../lib/messaging";
 import type { ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
 import type { SiteAccessMode } from "../lib/site-access";
+import type { RaceOutcome, RaceRunResult } from "../background/race-runner";
 import {
   clearApiTraffic,
   clearApiTrafficForPage,
@@ -20,6 +21,33 @@ import {
   type MediaKind,
   type MediaRole,
 } from "../lib/api-traffic";
+import {
+  buildObservedRoutes,
+  compareOpenApi,
+  generateOpenApi,
+  MAX_OPENAPI_IMPORT_BYTES,
+  normalizeObservedRoute,
+  parseOpenApiBaseline,
+  type AttackMapEntry,
+  type OpenApiDocument,
+} from "../lib/api-spec";
+import {
+  createRaceFlow,
+  createRaceSnapshot,
+  deleteRaceFlow,
+  getRaceFlows,
+  saveRaceFlow,
+  validateRaceFlow,
+  type RaceFlow,
+} from "../lib/race-flow";
+import {
+  extractGraphqlOperation,
+  getProtocolEvents,
+  matchesProtocolEvent,
+  type ProtocolEvent,
+  type ProtocolFilters,
+  type ProtocolTransport,
+} from "../lib/protocol-traffic";
 
 const JSON_TOKEN_REGEX =
   /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
@@ -53,6 +81,7 @@ interface ReconEndpoint {
 }
 
 type ToolSection = "traffic" | "red-team";
+type RedTeamTool = "recon" | "protocols" | "api-map" | "race-lab";
 
 const requestList = requireElement("request-list");
 const emptyState = requireElement("empty-state");
@@ -83,6 +112,44 @@ const reconCount = requireElement("recon-count");
 const reconState = requireElement("recon-state");
 const reconTableRegion = requireElement("recon-table-region");
 const reconEndpoints = requireElement("recon-endpoints");
+const redTeamTools: Record<RedTeamTool, { button: HTMLButtonElement; panel: HTMLElement }> = {
+  recon: { button: requireButton("show-recon-tool"), panel: requireElement("recon-tool") },
+  protocols: { button: requireButton("show-protocols-tool"), panel: requireElement("protocols-tool") },
+  "api-map": { button: requireButton("show-api-map-tool"), panel: requireElement("api-map-tool") },
+  "race-lab": { button: requireButton("show-race-lab-tool"), panel: requireElement("race-lab-tool") },
+};
+const protocolForm = requireForm("protocol-filters");
+const protocolScope = requireSelect("protocol-scope");
+const protocolTransport = requireSelect("protocol-transport");
+const protocolDirection = requireSelect("protocol-direction");
+const protocolOperation = requireInput("protocol-operation");
+const protocolText = requireInput("protocol-text");
+const protocolState = requireElement("protocol-state");
+const protocolEvents = requireElement("protocol-events");
+const loadOlderProtocols = requireButton("load-older-protocols");
+const exportProtocols = requireButton("export-protocols");
+const apiMapScope = requireSelect("api-map-scope");
+const apiMapDrift = requireSelect("api-map-drift");
+const apiMapMethod = requireSelect("api-map-method");
+const apiMapHostname = requireInput("api-map-hostname");
+const apiMapRoute = requireInput("api-map-route");
+const apiMapImport = requireInput("api-map-import");
+const apiMapExport = requireButton("api-map-export");
+const apiMapRefresh = requireButton("api-map-refresh");
+const apiMapState = requireElement("api-map-state");
+const apiMapRegion = requireElement("api-map-region");
+const apiMapEntries = requireElement("api-map-entries");
+const raceFlowSelect = requireSelect("race-flow-select");
+const raceFlowName = requireInput("race-flow-name");
+const raceFlowCreate = requireButton("race-flow-create");
+const raceFlowRename = requireButton("race-flow-rename");
+const raceFlowDelete = requireButton("race-flow-delete");
+const raceConcurrency = requireInput("race-concurrency");
+const raceRun = requireButton("race-run");
+const raceCancel = requireButton("race-cancel");
+const raceState = requireElement("race-state");
+const raceSteps = requireElement("race-steps");
+const raceResults = requireElement("race-results");
 let totalCount = 0;
 let oldestSequence: number | null = null;
 let currentPageHostname = "";
@@ -95,6 +162,16 @@ const sessionManifestUrls = new Map<number, { url: string; pageHostname: string 
 let activeSection: ToolSection = "traffic";
 let reconLoaded = false;
 let reconExchanges: ApiExchange[] = [];
+let activeRedTeamTool: RedTeamTool = "recon";
+let protocolLoaded = false;
+let displayedProtocolEvents: ProtocolEvent[] = [];
+let oldestProtocolSequence: number | null = null;
+let apiMapLoaded = false;
+let apiMapExchanges: ApiExchange[] = [];
+let apiMapBaseline: OpenApiDocument | null = null;
+let raceFlows: RaceFlow[] = [];
+let raceLoaded = false;
+let activeRaceRunId: string | null = null;
 
 showTrafficSection.addEventListener("click", () => setActiveSection("traffic"));
 showRedTeamSection.addEventListener("click", () => {
@@ -103,10 +180,44 @@ showRedTeamSection.addEventListener("click", () => {
 });
 refreshRecon.addEventListener("click", () => void refreshReconWorkspace());
 reconScope.addEventListener("change", renderReconWorkspace);
+for (const [tool, controls] of Object.entries(redTeamTools)) {
+  controls.button.addEventListener("click", () => void setActiveRedTeamTool(tool as RedTeamTool));
+}
+protocolForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void refreshProtocolWorkspace(true);
+});
+protocolScope.addEventListener("change", () => void refreshProtocolWorkspace(true));
+loadOlderProtocols.addEventListener("click", () => void loadProtocolPage());
+exportProtocols.addEventListener("click", () => void exportProtocolHistory());
+apiMapScope.addEventListener("change", renderApiMap);
+apiMapDrift.addEventListener("change", renderApiMap);
+apiMapMethod.addEventListener("change", renderApiMap);
+apiMapHostname.addEventListener("input", renderApiMap);
+apiMapRoute.addEventListener("input", renderApiMap);
+apiMapRefresh.addEventListener("click", () => void refreshApiMap());
+apiMapExport.addEventListener("click", exportObservedOpenApi);
+apiMapImport.addEventListener("change", () => void importOpenApiBaseline());
+raceFlowSelect.addEventListener("change", renderRaceLab);
+raceFlowCreate.addEventListener("click", () => void createNewRaceFlow());
+raceFlowRename.addEventListener("click", () => void renameSelectedRaceFlow());
+raceFlowDelete.addEventListener("click", () => void deleteSelectedRaceFlow());
+raceConcurrency.addEventListener("input", renderRaceLab);
+raceFlowName.addEventListener("input", renderRaceLab);
+raceRun.addEventListener("click", () => void reviewAndRunRace());
+raceCancel.addEventListener("click", () => void cancelActiveRace());
+raceResults.replaceChildren();
 
 void initializePanel();
 
 chrome.runtime.onMessage.addListener((message: unknown) => {
+  if (isProtocolCapturedMessage(message)) {
+    if (protocolLoaded && matchesProtocolEvent(message.payload, readProtocolFilters())) {
+      displayedProtocolEvents.unshift(message.payload);
+      if (activeSection === "red-team" && activeRedTeamTool === "protocols") renderProtocolWorkspace();
+    }
+    return false;
+  }
   if (!isCapturedMessage(message)) return false;
   if (message.sessionRequestUrl && isHttpUrl(message.sessionRequestUrl)) {
     sessionManifestUrls.set(message.payload.sequence, {
@@ -119,7 +230,11 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   updateScopeActions();
   if (reconLoaded) {
     reconExchanges.unshift(message.payload);
-    if (activeSection === "red-team") renderReconWorkspace();
+    if (activeSection === "red-team" && activeRedTeamTool === "recon") renderReconWorkspace();
+  }
+  if (apiMapLoaded) {
+    apiMapExchanges.unshift(message.payload);
+    if (activeSection === "red-team" && activeRedTeamTool === "api-map") renderApiMap();
   }
   if (matchesApiTraffic(message.payload, activeFilters)) {
     displayedExchanges.unshift(message.payload);
@@ -258,6 +373,8 @@ chrome.devtools.network.onNavigated.addListener((url) => {
     void resetDisplayedTraffic();
   }
   if (reconLoaded && reconScope.value === "current") renderReconWorkspace();
+  if (protocolLoaded && protocolScope.value === "current") void refreshProtocolWorkspace(true);
+  if (apiMapLoaded && apiMapScope.value === "current") renderApiMap();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -286,7 +403,523 @@ function setActiveSection(section: ToolSection): void {
   redTeamSection.hidden = showTraffic;
   showTrafficSection.setAttribute("aria-pressed", String(showTraffic));
   showRedTeamSection.setAttribute("aria-pressed", String(!showTraffic));
-  document.title = showTraffic ? "Dev Toolz API Traffic" : "Dev Toolz Red Team Recon";
+  document.title = showTraffic ? "Dev Toolz API Traffic" : `Dev Toolz Red Team ${activeRedTeamTool}`;
+}
+
+async function setActiveRedTeamTool(tool: RedTeamTool): Promise<void> {
+  activeRedTeamTool = tool;
+  for (const [name, controls] of Object.entries(redTeamTools)) {
+    const active = name === tool;
+    controls.button.setAttribute("aria-pressed", String(active));
+    controls.panel.hidden = !active;
+  }
+  document.title = `Dev Toolz Red Team ${tool}`;
+  if (tool === "recon" && !reconLoaded) await refreshReconWorkspace();
+  if (tool === "protocols" && !protocolLoaded) await refreshProtocolWorkspace(true);
+  if (tool === "api-map" && !apiMapLoaded) await refreshApiMap();
+  if (tool === "race-lab" && !raceLoaded) await loadRaceFlows();
+}
+
+function readProtocolFilters(): ProtocolFilters {
+  const transports: ProtocolTransport[] = ["graphql-http", "websocket", "sse", "webtransport"];
+  const transport = transports.includes(protocolTransport.value as ProtocolTransport)
+    ? protocolTransport.value as ProtocolTransport
+    : "";
+  const directions = ["sent", "received", "none"] as const;
+  const direction = directions.includes(protocolDirection.value as (typeof directions)[number])
+    ? protocolDirection.value as (typeof directions)[number]
+    : "";
+  return {
+    pageHostname: protocolScope.value === "current" ? currentPageHostname : null,
+    transport,
+    direction,
+    operationName: protocolOperation.value.trim(),
+    text: protocolText.value.trim(),
+  };
+}
+
+async function refreshProtocolWorkspace(reset: boolean): Promise<void> {
+  protocolState.hidden = false;
+  protocolState.textContent = "Loading protocol history…";
+  protocolEvents.replaceChildren();
+  if (reset) {
+    displayedProtocolEvents = [];
+    oldestProtocolSequence = null;
+  }
+  try {
+    if (!reconLoaded) {
+      reconExchanges = await getAllApiTraffic();
+      reconLoaded = true;
+    }
+    await loadProtocolPage();
+    protocolLoaded = true;
+  } catch {
+    protocolState.textContent = "Could not load protocol history. Try again.";
+  }
+}
+
+async function loadProtocolPage(): Promise<void> {
+  loadOlderProtocols.disabled = true;
+  const page = await getProtocolEvents(oldestProtocolSequence, PAGE_SIZE + 1, readProtocolFilters());
+  const events = page.slice(0, PAGE_SIZE);
+  displayedProtocolEvents.push(...events);
+  oldestProtocolSequence = events[events.length - 1]?.sequence ?? oldestProtocolSequence;
+  loadOlderProtocols.hidden = page.length <= PAGE_SIZE;
+  loadOlderProtocols.disabled = false;
+  renderProtocolWorkspace();
+}
+
+function createGraphqlHttpEvents(): ProtocolEvent[] {
+  const filters = readProtocolFilters();
+  return reconExchanges.flatMap((exchange): ProtocolEvent[] => {
+    const body = exchange.request.body;
+    const raw = body?.kind === "json" ? JSON.stringify(body.value) : body?.raw;
+    const graphql = extractGraphqlOperation(body?.kind === "json" ? body.value : raw);
+    if (!graphql) return [];
+    const event: ProtocolEvent = {
+      sequence: exchange.sequence,
+      sessionId: `http-${exchange.sequence ?? exchange.startedAt}`,
+      pageUrl: exchange.pageUrl ?? "",
+      url: exchange.request.url,
+      transport: "graphql-http",
+      kind: "message",
+      direction: "sent",
+      timestamp: exchange.startedAt,
+      payload: raw,
+      payloadBytes: raw ? new TextEncoder().encode(raw).length : 0,
+      truncated: false,
+      binary: false,
+      graphql,
+    };
+    return matchesProtocolEvent(event, filters) ? [event] : [];
+  }).slice(0, PAGE_SIZE);
+}
+
+function renderProtocolWorkspace(): void {
+  const events = [...displayedProtocolEvents, ...createGraphqlHttpEvents()]
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+  if (events.length === 0) {
+    protocolEvents.replaceChildren();
+    protocolState.hidden = false;
+    protocolState.textContent = "No matching protocol events. Generate traffic, then try again.";
+    return;
+  }
+  protocolState.hidden = true;
+  const sessions = new Map<string, ProtocolEvent[]>();
+  for (const event of events) {
+    const key = `${event.transport}\n${event.url}\n${event.sessionId}`;
+    const session = sessions.get(key);
+    if (session) session.push(event);
+    else sessions.set(key, [event]);
+  }
+  protocolEvents.replaceChildren(...[...sessions.values()].map(createProtocolSession));
+}
+
+function createProtocolSession(events: ProtocolEvent[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "protocol-event";
+  const first = events[0];
+  if (!first) return section;
+  const heading = document.createElement("h2");
+  heading.className = "protocol-event-header";
+  const badge = document.createElement("span");
+  badge.className = "protocol-badge";
+  badge.textContent = formatProtocolTransport(first.transport);
+  const title = document.createElement("span");
+  title.textContent = first.graphql?.name ?? first.eventName ?? first.kind;
+  heading.append(badge, title);
+  const url = document.createElement("p");
+  url.className = "protocol-url";
+  url.textContent = first.url;
+  section.append(heading, url, ...events.map(createProtocolEventView));
+  return section;
+}
+
+function createProtocolEventView(event: ProtocolEvent): HTMLElement {
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  const operation = event.graphql ? ` · ${event.graphql.type} ${event.graphql.name ?? "anonymous"}` : "";
+  summary.textContent = `${event.direction} · ${event.kind}${operation} · ${formatByteSize(event.payloadBytes)} · ${new Date(event.timestamp).toLocaleTimeString()}${event.truncated ? " · truncated" : ""}${event.binary ? " · binary" : ""}`;
+  details.append(summary, createCopyButton("Copy event", JSON.stringify(event, null, 2)));
+  if (event.payload !== undefined) {
+    const payload = createCodeBlock(event.payload);
+    payload.className = "protocol-payload";
+    details.appendChild(payload);
+  }
+  return details;
+}
+
+function formatProtocolTransport(transport: ProtocolTransport): string {
+  return transport === "graphql-http" ? "GraphQL HTTP" : transport === "sse" ? "SSE" : transport === "websocket" ? "WebSocket" : "WebTransport";
+}
+
+async function exportProtocolHistory(): Promise<void> {
+  exportProtocols.disabled = true;
+  try {
+    const events = await getProtocolEvents(null, Number.MAX_SAFE_INTEGER, readProtocolFilters());
+    downloadDataAsFile("dev-toolz-protocol-events.json", JSON.stringify([...events, ...createGraphqlHttpEvents()], null, 2), "application/json");
+  } finally {
+    exportProtocols.disabled = false;
+  }
+}
+
+async function refreshApiMap(): Promise<void> {
+  apiMapRefresh.disabled = true;
+  apiMapState.hidden = false;
+  apiMapState.textContent = "Building observed API draft…";
+  try {
+    apiMapExchanges = await getAllApiTraffic();
+    apiMapLoaded = true;
+    renderApiMap();
+  } catch {
+    apiMapRegion.hidden = true;
+    apiMapState.textContent = "Could not load captured traffic. Try refreshing.";
+  } finally {
+    apiMapRefresh.disabled = false;
+  }
+}
+
+function getScopedApiMapExchanges(): ApiExchange[] {
+  return apiMapScope.value === "current"
+    ? apiMapExchanges.filter((exchange) => matchesSite(exchange, currentPageHostname))
+    : apiMapExchanges;
+}
+
+function getFilteredApiMapEntries(): AttackMapEntry[] {
+  const drift = apiMapDrift.value;
+  const method = apiMapMethod.value.toLowerCase();
+  const hostname = apiMapHostname.value.trim().toLowerCase();
+  const routeText = apiMapRoute.value.trim().toLowerCase();
+  return compareOpenApi(buildObservedRoutes(getScopedApiMapExchanges()), apiMapBaseline).filter((entry) =>
+    (!drift || entry.state === drift) &&
+    (!method || entry.method === method) &&
+    (!hostname || entry.observed?.hostname.includes(hostname) === true) &&
+    (!routeText || entry.path.toLowerCase().includes(routeText))
+  );
+}
+
+function renderApiMap(): void {
+  if (!apiMapLoaded) return;
+  const entries = getFilteredApiMapEntries();
+  if (entries.length === 0) {
+    apiMapEntries.replaceChildren();
+    apiMapRegion.hidden = true;
+    apiMapState.hidden = false;
+    apiMapState.textContent = "No routes match this scope and filter.";
+    return;
+  }
+  apiMapState.hidden = false;
+  apiMapState.textContent = `${entries.length} routes · ${apiMapBaseline ? "compared with imported baseline" : "observed draft; completeness is not guaranteed"}`;
+  apiMapRegion.hidden = false;
+  apiMapEntries.replaceChildren(...entries.map(createApiMapRow));
+}
+
+function createApiMapRow(entry: AttackMapEntry): HTMLTableRowElement {
+  const row = document.createElement("tr");
+  const state = document.createElement("td");
+  const badge = document.createElement("span");
+  badge.className = `protocol-badge map-state-${entry.state}`;
+  badge.textContent = entry.state[0]?.toUpperCase() + entry.state.slice(1);
+  state.appendChild(badge);
+  const method = document.createElement("td");
+  method.textContent = entry.method.toUpperCase();
+  const route = document.createElement("td");
+  const routeCode = document.createElement("code");
+  routeCode.className = "recon-route";
+  routeCode.textContent = `${entry.observed?.hostname ?? "baseline"}${entry.path}`;
+  route.appendChild(routeCode);
+  const requests = document.createElement("td");
+  requests.textContent = entry.observed ? String(entry.observed.requestCount) : "Not observed";
+  const shape = document.createElement("td");
+  shape.className = "recon-signals";
+  shape.textContent = entry.observed
+    ? `Statuses: ${entry.observed.statuses.join(", ") || "none"} · Query: ${entry.observed.queryFields.join(", ") || "none"} · Body: ${Object.keys(entry.observed.bodyFields).join(", ") || "none"} · Content: ${entry.observed.contentTypes.join(", ") || "none"}`
+    : "Declared in baseline; no matching traffic observed.";
+  row.append(state, method, route, requests, shape);
+  return row;
+}
+
+async function importOpenApiBaseline(): Promise<void> {
+  const file = apiMapImport.files?.[0];
+  apiMapImport.value = "";
+  if (!file) return;
+  try {
+    if (file.size > MAX_OPENAPI_IMPORT_BYTES) throw new Error("OpenAPI file must be 5 MiB or smaller.");
+    const parsed = parseOpenApiBaseline(await file.text());
+    apiMapBaseline = parsed;
+    renderApiMap();
+  } catch (error) {
+    apiMapState.hidden = false;
+    apiMapState.textContent = error instanceof Error ? error.message : "Could not import OpenAPI JSON.";
+  }
+}
+
+function exportObservedOpenApi(): void {
+  const scope = apiMapScope.value === "current" ? currentPageHostname || "current-site" : "all-sites";
+  downloadDataAsFile(
+    `dev-toolz-${scope}-observed-openapi.json`,
+    JSON.stringify(generateOpenApi(getScopedApiMapExchanges()), null, 2),
+    "application/json"
+  );
+}
+
+async function loadRaceFlows(selectedId?: string): Promise<void> {
+  try {
+    raceFlows = await getRaceFlows();
+    raceLoaded = true;
+    raceFlowSelect.replaceChildren(
+      createOption("", raceFlows.length ? "Select a flow" : "No saved flows"),
+      ...raceFlows.map((flow) => createOption(flow.id, flow.name))
+    );
+    if (selectedId && raceFlows.some((flow) => flow.id === selectedId)) raceFlowSelect.value = selectedId;
+    renderRaceLab();
+  } catch {
+    raceState.textContent = "Could not load saved flows. Reopen the panel and try again.";
+  }
+}
+
+function getSelectedRaceFlow(): RaceFlow | undefined {
+  return raceFlows.find((flow) => flow.id === raceFlowSelect.value);
+}
+
+async function createNewRaceFlow(): Promise<void> {
+  const saved = await saveRaceFlow(createRaceFlow(raceFlowName.value));
+  raceFlowName.value = "";
+  await loadRaceFlows(saved.id);
+}
+
+async function renameSelectedRaceFlow(): Promise<void> {
+  const flow = getSelectedRaceFlow();
+  if (!flow || !raceFlowName.value.trim()) return;
+  const saved = await saveRaceFlow({ ...flow, name: raceFlowName.value });
+  raceFlowName.value = "";
+  await loadRaceFlows(saved.id);
+}
+
+async function deleteSelectedRaceFlow(): Promise<void> {
+  const flow = getSelectedRaceFlow();
+  if (!flow || !window.confirm(`Permanently delete the flow “${flow.name}”?`)) return;
+  await deleteRaceFlow(flow.id);
+  await loadRaceFlows();
+}
+
+function renderRaceLab(): void {
+  const flow = getSelectedRaceFlow();
+  raceFlowRename.disabled = !flow || !raceFlowName.value.trim();
+  raceFlowDelete.disabled = !flow;
+  raceSteps.replaceChildren();
+  if (!flow) {
+    raceState.hidden = false;
+    raceState.textContent = "Create or select a flow, then add captured Recon requests.";
+    raceRun.disabled = true;
+    return;
+  }
+  raceState.hidden = false;
+  raceState.textContent = flow.steps.length
+    ? `${flow.steps.length} steps · select one synchronized race step.`
+    : "This flow has no steps. Add a request from Recon.";
+  raceSteps.replaceChildren(...flow.steps.map((step, index) => createRaceStep(flow, step, index)));
+  void updateRaceRunState(flow);
+}
+
+function createRaceStep(flow: RaceFlow, step: RaceFlow["steps"][number], index: number): HTMLLIElement {
+  const item = document.createElement("li");
+  item.className = "race-step";
+  const main = document.createElement("div");
+  main.className = "race-step-main";
+  const race = document.createElement("input");
+  race.type = "radio";
+  race.name = "race-step";
+  race.checked = flow.raceStepIndex === index;
+  race.setAttribute("aria-label", `Synchronize step ${index + 1}`);
+  race.addEventListener("change", () => void updateRaceFlow({ ...flow, raceStepIndex: index }));
+  const code = document.createElement("code");
+  code.textContent = `${step.method} ${new URL(step.url).pathname}`;
+  const up = createRaceStepButton("Move up", index === 0, () => moveRaceStep(flow, index, index - 1));
+  const down = createRaceStepButton("Move down", index === flow.steps.length - 1, () => moveRaceStep(flow, index, index + 1));
+  const remove = createRaceStepButton("Remove", false, () => removeRaceStep(flow, index));
+  main.append(race, code, up, down, remove);
+  item.appendChild(main);
+  return item;
+}
+
+function createRaceStepButton(label: string, disabled: boolean, action: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.disabled = disabled;
+  button.addEventListener("click", action);
+  return button;
+}
+
+function moveRaceStep(flow: RaceFlow, from: number, to: number): void {
+  const steps = [...flow.steps];
+  const [step] = steps.splice(from, 1);
+  if (!step) return;
+  steps.splice(to, 0, step);
+  const raceStepIndex = flow.raceStepIndex === from ? to
+    : flow.raceStepIndex === to ? from : flow.raceStepIndex;
+  void updateRaceFlow({ ...flow, steps, raceStepIndex });
+}
+
+function removeRaceStep(flow: RaceFlow, index: number): void {
+  const steps = flow.steps.filter((_, stepIndex) => stepIndex !== index);
+  const raceStepIndex = flow.raceStepIndex === index ? -1
+    : flow.raceStepIndex > index ? flow.raceStepIndex - 1 : flow.raceStepIndex;
+  void updateRaceFlow({ ...flow, steps, raceStepIndex });
+}
+
+async function updateRaceFlow(flow: RaceFlow): Promise<void> {
+  const saved = await saveRaceFlow(flow);
+  await loadRaceFlows(saved.id);
+}
+
+async function updateRaceRunState(flow: RaceFlow): Promise<void> {
+  if (activeRaceRunId) {
+    raceRun.disabled = true;
+    return;
+  }
+  try {
+    validateRaceFlow(flow, await getInspectedPageOrigin(), Number(raceConcurrency.value));
+    raceRun.disabled = false;
+  } catch {
+    raceRun.disabled = true;
+  }
+}
+
+async function reviewAndRunRace(): Promise<void> {
+  const flow = getSelectedRaceFlow();
+  if (!flow || activeRaceRunId) return;
+  const pageUrl = await getInspectedPageUrl();
+  const concurrency = Number(raceConcurrency.value);
+  let origin: string;
+  try {
+    origin = new URL(pageUrl).origin;
+    validateRaceFlow(flow, origin, concurrency);
+  } catch (error) {
+    raceState.textContent = error instanceof Error ? error.message : "The flow is not ready.";
+    return;
+  }
+  const raceStep = flow.steps[flow.raceStepIndex];
+  if (!raceStep) return;
+  const target = new URL(raceStep.url);
+  const requestCount = flow.steps.length - 1 + concurrency;
+  const confirmed = window.confirm(
+    `Authorized test only. Run ${requestCount} requests?\n\nRace: ${raceStep.method} ${target.origin}${target.pathname}\nConcurrency: ${concurrency}\n\nThis can change target data.`
+  );
+  if (!confirmed) return;
+
+  const runId = crypto.randomUUID();
+  activeRaceRunId = runId;
+  setRaceRunning(true);
+  raceState.textContent = "Running setup steps, then launching the synchronized burst…";
+  raceResults.replaceChildren();
+  try {
+    const response = await sendToBackground("RUN_RACE_FLOW", {
+      tabId: chrome.devtools.inspectedWindow.tabId,
+      runId,
+      expectedPageUrl: pageUrl,
+      flow,
+      concurrency,
+    });
+    if (!response.success || !response.data) throw new Error(response.error ?? "Race did not return results.");
+    renderRaceResults(response.data);
+  } catch (error) {
+    raceState.textContent = error instanceof Error ? error.message : "Race failed.";
+  } finally {
+    if (activeRaceRunId === runId) activeRaceRunId = null;
+    setRaceRunning(false);
+    void updateRaceRunState(flow);
+  }
+}
+
+async function cancelActiveRace(): Promise<void> {
+  const runId = activeRaceRunId;
+  if (!runId) return;
+  raceCancel.disabled = true;
+  raceState.textContent = "Cancelling outstanding requests…";
+  const response = await sendToBackground("CANCEL_RACE_FLOW", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+    runId,
+  });
+  if (!response.success || !response.data?.cancelled) {
+    raceState.textContent = response.error ?? "The run already finished or could not be cancelled.";
+  }
+}
+
+function setRaceRunning(running: boolean): void {
+  raceFlowSelect.disabled = running;
+  raceFlowCreate.disabled = running;
+  raceFlowRename.disabled = running || !getSelectedRaceFlow();
+  raceFlowDelete.disabled = running || !getSelectedRaceFlow();
+  raceConcurrency.disabled = running;
+  raceRun.disabled = running;
+  raceCancel.hidden = !running;
+  raceCancel.disabled = false;
+}
+
+function renderRaceResults(result: RaceRunResult): void {
+  raceState.hidden = false;
+  raceState.textContent = `${result.state[0]?.toUpperCase()}${result.state.slice(1)} · ${result.outcomes.length} outcomes${result.error ? ` · ${result.error}` : ""}`;
+  if (result.outcomes.length === 0) {
+    raceResults.replaceChildren();
+    return;
+  }
+  const groups = new Map<string, RaceOutcome[]>();
+  for (const outcome of result.outcomes) {
+    const key = `${outcome.status}\u0000${outcome.error ?? ""}\u0000${outcome.responseBytes}\u0000${outcome.preview}`;
+    const group = groups.get(key);
+    if (group) group.push(outcome);
+    else groups.set(key, [outcome]);
+  }
+  const heading = document.createElement("h2");
+  heading.textContent = "Grouped outcomes";
+  const list = document.createElement("div");
+  list.className = "protocol-events";
+  list.replaceChildren(...[...groups.values()].map(createRaceOutcomeGroup));
+  raceResults.replaceChildren(heading, list);
+}
+
+function createRaceOutcomeGroup(outcomes: RaceOutcome[]): HTMLElement {
+  const first = outcomes[0];
+  const section = document.createElement("section");
+  section.className = "protocol-event";
+  if (!first) return section;
+  const heading = document.createElement("h3");
+  heading.textContent = `${outcomes.length}× ${first.error ?? `HTTP ${first.status}`} · ${formatByteSize(first.responseBytes)}${first.truncated ? " · truncated" : ""}`;
+  const durations = document.createElement("p");
+  durations.className = "protocol-meta";
+  durations.textContent = `Durations: ${outcomes.map((outcome) => `${Math.round(outcome.durationMs)} ms`).join(", ")}`;
+  section.append(heading, durations);
+  if (first.preview) {
+    const preview = createCodeBlock(first.preview);
+    preview.className = "protocol-payload";
+    section.appendChild(preview);
+  }
+  return section;
+}
+
+function createAddToFlowButton(exchange: ApiExchange): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Add to flow";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      if (!raceLoaded) await loadRaceFlows();
+      let flow = getSelectedRaceFlow();
+      if (!flow) flow = await saveRaceFlow(createRaceFlow("Captured flow"));
+      const snapshot = createRaceSnapshot(exchange, await getInspectedPageOrigin());
+      const saved = await saveRaceFlow({ ...flow, steps: [...flow.steps, snapshot] });
+      await loadRaceFlows(saved.id);
+      button.textContent = "Added";
+    } catch (error) {
+      button.textContent = error instanceof Error ? error.message : "Could not add";
+    } finally {
+      window.setTimeout(() => { button.disabled = false; button.textContent = "Add to flow"; }, 1800);
+    }
+  });
+  return button;
 }
 
 async function refreshReconWorkspace(): Promise<void> {
@@ -410,6 +1043,22 @@ function readFilters(): ApiTrafficFilters {
   };
 }
 
+function getInspectedPageUrl(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
+      resolve(!exceptionInfo && typeof result === "string" ? result : "");
+    });
+  });
+}
+
+function getInspectedPageOrigin(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.devtools.inspectedWindow.eval("location.origin", (result, exceptionInfo) => {
+      resolve(!exceptionInfo && typeof result === "string" ? result : "");
+    });
+  });
+}
+
 function getInspectedPageHostname(): Promise<string> {
   return new Promise((resolve) => {
     chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
@@ -471,22 +1120,8 @@ function createReconEndpoints(exchanges: ApiExchange[]): ReconEndpoint[] {
 }
 
 function getReconTarget(rawUrl: string): { hostname: string; route: string } {
-  try {
-    const url = new URL(rawUrl);
-    const pathname = url.pathname
-      .split("/")
-      .map((segment) =>
-        /^\d+$/.test(segment) ||
-        /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(segment) ||
-        /^[0-9a-f]{16,}$/i.test(segment)
-          ? "{id}"
-          : segment
-      )
-      .join("/");
-    return { hostname: url.hostname.toLowerCase(), route: `${url.origin}${pathname || "/"}` };
-  } catch {
-    return { hostname: "", route: rawUrl };
-  }
+  const target = normalizeObservedRoute(rawUrl);
+  return { hostname: target.hostname, route: target.origin ? `${target.origin}${target.path}` : target.path };
 }
 
 function collectReconSignals(endpoint: ReconEndpoint, exchange: ApiExchange): void {
@@ -565,7 +1200,10 @@ function createReconEvidence(exchange: ApiExchange): HTMLDetailsElement {
     url.textContent = exchange.request.url;
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.appendChild(createCopyButton("Copy request URL", exchange.request.url));
+    actions.append(
+      createCopyButton("Copy request URL", exchange.request.url),
+      createAddToFlowButton(exchange)
+    );
     details.append(
       metadata,
       url,
@@ -1172,6 +1810,26 @@ function getTokenClass(token: string): string {
 
 function updateCount(): void {
   requestCount.textContent = `${totalCount} stored`;
+}
+
+function isProtocolCapturedMessage(
+  message: unknown
+): message is { type: "PROTOCOL_EVENT_CAPTURED"; payload: ProtocolEvent & { sequence: number } } {
+  if (!isRecord(message) || message.type !== "PROTOCOL_EVENT_CAPTURED" || !isRecord(message.payload)) return false;
+  const payload = message.payload;
+  return (
+    typeof payload.sequence === "number" &&
+    typeof payload.sessionId === "string" &&
+    typeof payload.pageUrl === "string" &&
+    typeof payload.url === "string" &&
+    typeof payload.transport === "string" &&
+    typeof payload.kind === "string" &&
+    typeof payload.direction === "string" &&
+    typeof payload.timestamp === "string" &&
+    typeof payload.payloadBytes === "number" &&
+    typeof payload.truncated === "boolean" &&
+    typeof payload.binary === "boolean"
+  );
 }
 
 function isCapturedMessage(
