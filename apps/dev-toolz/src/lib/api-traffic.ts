@@ -91,9 +91,9 @@ export type ApiExchange = {
 const STORE_NAME = API_TRAFFIC_STORE;
 export const REDACTED = "<redacted>";
 const SENSITIVE_NAME_REGEX =
-  /(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key)/i;
+  /(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key|client[_-]?secret|bearer|x[_-]?auth|x[_-]?api|x[_-]?session|jwt|assertion|credential)/i;
 const SENSITIVE_QUERY_NAME_REGEX =
-  /^(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key|signature|sig|policy|key[_-]?pair[_-]?id|x-amz-(credential|signature|security-token)|x-goog-(credential|signature))$/i;
+  /^(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key|client[_-]?secret|signature|sig|policy|key[_-]?pair[_-]?id|x-amz-(credential|signature|security-token)|x-goog-(credential|signature))$/i;
 export const MEDIA_BODY_OMITTED = "<media body omitted; metadata only>";
 
 export function detectMediaKind(
