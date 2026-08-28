@@ -7,6 +7,15 @@
     <link rel="stylesheet" href="./devtools.css" />
   </head>
   <body>
+    <nav class="section-nav" aria-label="Dev Toolz sections">
+      <button id="show-traffic-section" type="button" aria-pressed="true" aria-controls="traffic-section">
+        API Traffic
+      </button>
+      <button id="show-red-team-section" type="button" aria-pressed="false" aria-controls="red-team-section">
+        Red Team
+      </button>
+    </nav>
+    <section id="traffic-section" class="tool-section">
     <header>
       <div>
         <h1>API traffic</h1>
@@ -154,6 +163,57 @@
       <p id="empty-state">Capturing active-tab API traffic automatically…</p>
     </main>
     <button id="load-older" class="load-older" type="button" hidden>Load older</button>
+    </section>
+
+    <section id="red-team-section" class="tool-section" hidden>
+      <header>
+        <div>
+          <h1>Red Team Recon</h1>
+          <p>Map captured endpoints and inspect the evidence behind each target.</p>
+        </div>
+        <div class="header-actions">
+          <span id="recon-count" aria-live="polite">Not loaded</span>
+          <button id="refresh-recon" type="button">Refresh inventory</button>
+        </div>
+      </header>
+      <div class="recon-controls">
+        <label>
+          Evidence scope
+          <select id="recon-scope">
+            <option value="current">Current site</option>
+            <option value="all">All captured history</option>
+          </select>
+        </label>
+        <p>Routes group variable identifiers while preserving exact captured samples.</p>
+      </div>
+      <main id="recon-workspace" class="recon-workspace">
+        <p id="recon-state" class="empty-state" aria-live="polite">
+          Open this section to build an endpoint inventory from captured traffic.
+        </p>
+        <div
+          id="recon-table-region"
+          class="table-scroll recon-table-region"
+          role="region"
+          aria-label="Captured endpoint inventory"
+          tabindex="0"
+          hidden
+        >
+          <table class="recon-table">
+            <caption>Captured endpoint inventory</caption>
+            <thead>
+              <tr>
+                <th scope="col">Method</th>
+                <th scope="col">Observed route and evidence</th>
+                <th scope="col">Requests</th>
+                <th scope="col">Statuses</th>
+                <th scope="col">Input and identity signals</th>
+              </tr>
+            </thead>
+            <tbody id="recon-endpoints"></tbody>
+          </table>
+        </div>
+      </main>
+    </section>
     <script type="module" src="./devtools.ts"></script>
   </body>
 </html>

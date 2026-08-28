@@ -13,9 +13,45 @@ body {
   color: CanvasText;
 }
 
-header {
+.section-nav {
   position: sticky;
   top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  min-height: 41px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  background: Canvas;
+}
+
+.section-nav button {
+  min-width: 112px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
+}
+
+.section-nav button:hover:not(:disabled) {
+  border-bottom-color: color-mix(in srgb, Highlight 45%, transparent);
+}
+
+.section-nav button[aria-pressed="true"] {
+  border-bottom-color: Highlight;
+  background: color-mix(in srgb, CanvasText 8%, Canvas);
+  font-weight: 700;
+}
+
+.tool-section[hidden] {
+  display: none;
+}
+
+header {
+  position: sticky;
+  top: 41px;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -412,6 +448,144 @@ pre {
 
 .token-null {
   color: GrayText;
+}
+
+.recon-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+}
+
+.recon-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: min(260px, 100%);
+  color: GrayText;
+  font-size: 11px;
+}
+
+.recon-controls select {
+  min-width: 0;
+  padding: 5px 28px 5px 7px;
+  border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+  border-radius: 4px;
+  background: Field;
+  color: FieldText;
+  font: inherit;
+}
+
+.recon-controls select:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 1px;
+}
+
+.recon-controls p {
+  margin: 0;
+  color: GrayText;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.recon-workspace {
+  display: block;
+}
+
+.empty-state {
+  margin: 48px auto;
+  color: GrayText;
+  text-align: center;
+}
+
+.recon-table-region {
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 6px;
+}
+
+.recon-table-region[hidden] {
+  display: none;
+}
+
+.recon-table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: collapse;
+}
+
+.recon-table caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.recon-table th,
+.recon-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.recon-table th {
+  color: GrayText;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.recon-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.recon-method,
+.recon-route,
+.recon-sample-url {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.recon-method {
+  font-weight: 700;
+}
+
+.recon-table th:nth-child(2),
+.recon-table td:nth-child(2) {
+  min-width: 420px;
+}
+
+.recon-route {
+  overflow-wrap: anywhere;
+}
+
+.recon-evidence {
+  margin-top: 7px;
+  border-top: 0;
+}
+
+.recon-evidence summary {
+  display: inline-block;
+  padding: 3px 0;
+  color: LinkText;
+}
+
+.recon-sample-meta,
+.recon-signals {
+  color: GrayText;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.recon-sample-meta,
+.recon-sample-url {
+  margin: 7px 0 0;
+}
+
+.recon-sample-url {
+  overflow-wrap: anywhere;
+  font-size: 11px;
 }
 
 @media (max-width: 1200px) {

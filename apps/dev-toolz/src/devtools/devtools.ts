@@ -39,6 +39,21 @@ interface TrafficGroup {
   latestStartedAt: number;
 }
 
+interface ReconEndpoint {
+  key: string;
+  method: string;
+  hostname: string;
+  route: string;
+  requestCount: number;
+  statuses: Set<number>;
+  queryNames: Set<string>;
+  bodyFields: Set<string>;
+  identityHeaders: Set<string>;
+  samples: ApiExchange[];
+}
+
+type ToolSection = "traffic" | "red-team";
+
 const requestList = requireElement("request-list");
 const emptyState = requireElement("empty-state");
 const requestCount = requireElement("request-count");
@@ -58,6 +73,16 @@ const methodFilter = requireSelect("filter-method");
 const statusFilter = requireSelect("filter-status");
 const mimeFilter = requireInput("filter-mime");
 const resetFilters = requireButton("reset-filters");
+const trafficSection = requireElement("traffic-section");
+const redTeamSection = requireElement("red-team-section");
+const showTrafficSection = requireButton("show-traffic-section");
+const showRedTeamSection = requireButton("show-red-team-section");
+const refreshRecon = requireButton("refresh-recon");
+const reconScope = requireSelect("recon-scope");
+const reconCount = requireElement("recon-count");
+const reconState = requireElement("recon-state");
+const reconTableRegion = requireElement("recon-table-region");
+const reconEndpoints = requireElement("recon-endpoints");
 let totalCount = 0;
 let oldestSequence: number | null = null;
 let currentPageHostname = "";
@@ -67,6 +92,17 @@ let groupingMode: "nearby" | "site" | null = null;
 const hiddenEndpoints = new Set<string>();
 const hiddenMediaStreams = new Set<string>();
 const sessionManifestUrls = new Map<number, { url: string; pageHostname: string }>();
+let activeSection: ToolSection = "traffic";
+let reconLoaded = false;
+let reconExchanges: ApiExchange[] = [];
+
+showTrafficSection.addEventListener("click", () => setActiveSection("traffic"));
+showRedTeamSection.addEventListener("click", () => {
+  setActiveSection("red-team");
+  if (!reconLoaded) void refreshReconWorkspace();
+});
+refreshRecon.addEventListener("click", () => void refreshReconWorkspace());
+reconScope.addEventListener("change", renderReconWorkspace);
 
 void initializePanel();
 
@@ -81,6 +117,10 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   totalCount += 1;
   updateCount();
   updateScopeActions();
+  if (reconLoaded) {
+    reconExchanges.unshift(message.payload);
+    if (activeSection === "red-team") renderReconWorkspace();
+  }
   if (matchesApiTraffic(message.payload, activeFilters)) {
     displayedExchanges.unshift(message.payload);
     if (
@@ -155,6 +195,7 @@ clearResponses.addEventListener("click", async () => {
     totalCount = await countApiTraffic();
     updateCount();
     await resetDisplayedTraffic();
+    if (reconLoaded) await refreshReconWorkspace();
   } catch {
     showClearFailure();
     return;
@@ -216,6 +257,7 @@ chrome.devtools.network.onNavigated.addListener((url) => {
     activeFilters = readFilters();
     void resetDisplayedTraffic();
   }
+  if (reconLoaded && reconScope.value === "current") renderReconWorkspace();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -235,6 +277,64 @@ async function initializePanel(): Promise<void> {
   updateCount();
   updateScopeActions();
   await loadNextPage();
+}
+
+function setActiveSection(section: ToolSection): void {
+  activeSection = section;
+  const showTraffic = section === "traffic";
+  trafficSection.hidden = !showTraffic;
+  redTeamSection.hidden = showTraffic;
+  showTrafficSection.setAttribute("aria-pressed", String(showTraffic));
+  showRedTeamSection.setAttribute("aria-pressed", String(!showTraffic));
+  document.title = showTraffic ? "Dev Toolz API Traffic" : "Dev Toolz Red Team Recon";
+}
+
+async function refreshReconWorkspace(): Promise<void> {
+  refreshRecon.disabled = true;
+  reconState.hidden = false;
+  reconState.textContent = "Building endpoint inventory…";
+  reconTableRegion.hidden = true;
+  try {
+    // simplification: recon materializes history; index routes during capture if datasets outgrow memory.
+    reconExchanges = await getAllApiTraffic();
+    reconLoaded = true;
+    renderReconWorkspace();
+  } catch {
+    reconCount.textContent = "Unavailable";
+    reconState.textContent = "Could not load captured traffic. Try refreshing the inventory.";
+  } finally {
+    refreshRecon.disabled = false;
+  }
+}
+
+function renderReconWorkspace(): void {
+  if (!reconLoaded) return;
+  const currentSiteOnly = reconScope.value === "current";
+  const scopedExchanges = currentSiteOnly
+    ? reconExchanges.filter((exchange) => matchesSite(exchange, currentPageHostname))
+    : reconExchanges;
+  const endpoints = createReconEndpoints(scopedExchanges);
+  reconCount.textContent = `${endpoints.length} endpoints · ${scopedExchanges.length} exchanges`;
+
+  if (currentSiteOnly && !currentPageHostname) {
+    showReconEmpty("Inspect a website to build its endpoint inventory.");
+    return;
+  }
+  if (endpoints.length === 0) {
+    showReconEmpty("No captured endpoints in this scope. Browse the target, then refresh inventory.");
+    return;
+  }
+
+  reconState.hidden = true;
+  reconTableRegion.hidden = false;
+  reconEndpoints.replaceChildren(...endpoints.map(createReconEndpointRow));
+}
+
+function showReconEmpty(message: string): void {
+  reconEndpoints.replaceChildren();
+  reconTableRegion.hidden = true;
+  reconState.textContent = message;
+  reconState.hidden = false;
 }
 
 async function loadNextPage(): Promise<void> {
@@ -336,6 +436,155 @@ function getEndpointKey(rawUrl: string): string {
   } catch {
     return rawUrl;
   }
+}
+
+function createReconEndpoints(exchanges: ApiExchange[]): ReconEndpoint[] {
+  const endpoints = new Map<string, ReconEndpoint>();
+  for (const exchange of exchanges) {
+    const target = getReconTarget(exchange.request.url);
+    const method = exchange.request.method.toUpperCase();
+    const key = `${method}\u0000${target.route}`;
+    let endpoint = endpoints.get(key);
+    if (!endpoint) {
+      endpoint = {
+        key,
+        method,
+        hostname: target.hostname,
+        route: target.route,
+        requestCount: 0,
+        statuses: new Set(),
+        queryNames: new Set(),
+        bodyFields: new Set(),
+        identityHeaders: new Set(),
+        samples: [],
+      };
+      endpoints.set(key, endpoint);
+    }
+    endpoint.requestCount += 1;
+    endpoint.statuses.add(exchange.response.status);
+    collectReconSignals(endpoint, exchange);
+    if (endpoint.samples.length === 0) endpoint.samples.push(exchange);
+  }
+  return [...endpoints.values()].sort(
+    (left, right) => right.requestCount - left.requestCount || left.route.localeCompare(right.route)
+  );
+}
+
+function getReconTarget(rawUrl: string): { hostname: string; route: string } {
+  try {
+    const url = new URL(rawUrl);
+    const pathname = url.pathname
+      .split("/")
+      .map((segment) =>
+        /^\d+$/.test(segment) ||
+        /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(segment) ||
+        /^[0-9a-f]{16,}$/i.test(segment)
+          ? "{id}"
+          : segment
+      )
+      .join("/");
+    return { hostname: url.hostname.toLowerCase(), route: `${url.origin}${pathname || "/"}` };
+  } catch {
+    return { hostname: "", route: rawUrl };
+  }
+}
+
+function collectReconSignals(endpoint: ReconEndpoint, exchange: ApiExchange): void {
+  try {
+    for (const name of new URL(exchange.request.url).searchParams.keys()) {
+      if (name) endpoint.queryNames.add(name);
+    }
+  } catch {
+    // The raw route remains useful evidence when URL parsing fails.
+  }
+  for (const { name } of exchange.request.headers) {
+    if (/(authorization|cookie|credential|api[-_]?key|session|token)/i.test(name)) {
+      endpoint.identityHeaders.add(name.toLowerCase());
+    }
+  }
+  const body = exchange.request.body;
+  if (!body || body.kind !== "json") return;
+  if (Array.isArray(body.value)) {
+    for (const item of body.value) {
+      if (!isRecord(item)) continue;
+      if (typeof item.name === "string" && Object.prototype.hasOwnProperty.call(item, "value")) {
+        endpoint.bodyFields.add(item.name);
+      } else {
+        for (const name of Object.keys(item)) endpoint.bodyFields.add(name);
+      }
+    }
+  } else if (isRecord(body.value)) {
+    for (const name of Object.keys(body.value)) endpoint.bodyFields.add(name);
+  }
+}
+
+function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {
+  const row = document.createElement("tr");
+  const method = document.createElement("td");
+  const methodCode = document.createElement("code");
+  methodCode.className = "recon-method";
+  methodCode.textContent = endpoint.method;
+  method.appendChild(methodCode);
+
+  const route = document.createElement("td");
+  const routeCode = document.createElement("code");
+  routeCode.className = "recon-route";
+  routeCode.textContent = endpoint.route;
+  route.appendChild(routeCode);
+  const latestExchange = endpoint.samples[0];
+  if (latestExchange) route.appendChild(createReconEvidence(latestExchange));
+
+  const requests = document.createElement("td");
+  requests.textContent = String(endpoint.requestCount);
+  const statuses = document.createElement("td");
+  statuses.textContent = [...endpoint.statuses]
+    .sort((left, right) => left - right)
+    .map((status) => (status === 0 ? "No response" : String(status)))
+    .join(", ");
+  const signals = document.createElement("td");
+  signals.className = "recon-signals";
+  signals.textContent = formatReconSignals(endpoint);
+  row.append(method, route, requests, statuses, signals);
+  return row;
+}
+
+function createReconEvidence(exchange: ApiExchange): HTMLDetailsElement {
+  const details = document.createElement("details");
+  details.className = "recon-evidence";
+  const summary = document.createElement("summary");
+  summary.textContent = "Inspect latest captured exchange";
+  details.appendChild(summary);
+  details.addEventListener("toggle", () => {
+    if (!details.open || details.childElementCount > 1) return;
+    const startedAt = new Date(exchange.startedAt);
+    const metadata = document.createElement("p");
+    metadata.className = "recon-sample-meta";
+    metadata.textContent = `${Number.isNaN(startedAt.getTime()) ? exchange.startedAt : startedAt.toLocaleString()} · ${exchange.response.status || "No response"} · ${Math.round(exchange.durationMs)} ms`;
+    const url = document.createElement("p");
+    url.className = "recon-sample-url";
+    url.textContent = exchange.request.url;
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.appendChild(createCopyButton("Copy request URL", exchange.request.url));
+    details.append(
+      metadata,
+      url,
+      actions,
+      createDetails("Outgoing request", exchange.request.headers, exchange.request.body),
+      createDetails("Incoming response", exchange.response.headers, exchange.response.body)
+    );
+  });
+  return details;
+}
+
+function formatReconSignals(endpoint: ReconEndpoint): string {
+  const signals: string[] = [];
+  if (endpoint.queryNames.size) signals.push(`Query: ${[...endpoint.queryNames].join(", ")}`);
+  if (endpoint.bodyFields.size) signals.push(`Body: ${[...endpoint.bodyFields].join(", ")}`);
+  if (endpoint.identityHeaders.size) {
+    signals.push(`Identity: ${[...endpoint.identityHeaders].join(", ")}`);
+  }
+  return signals.join(" · ") || "No structured inputs observed";
 }
 
 async function refreshCaptureStatus(): Promise<void> {

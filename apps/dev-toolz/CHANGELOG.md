@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.1.23] - 2026-08-28
+
+### Added
+
+- Added a dedicated **Red Team** section with endpoint recon, route grouping, input signals, and expandable captured evidence.
+
 ## [1.1.22] - 2026-08-26
 
 ### Changed
@@ -230,7 +236,8 @@ Dev Toolz can now record and inspect active-tab API traffic before DevTools open
 
 - Initial Dev Toolz Chrome extension with page capture, popup controls, downloads, and extension settings.
 
-[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.22...HEAD
+[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.23...HEAD
+[1.1.23]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.22...v1.1.23
 [1.1.22]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.21...v1.1.22
 [1.1.21]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.20...v1.1.21
 [1.1.20]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.19...v1.1.20

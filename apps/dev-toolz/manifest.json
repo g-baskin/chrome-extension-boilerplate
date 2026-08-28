@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.1.22",
+  "version": "1.1.23",
   "minimum_chrome_version": "118",
   "description": "Persistent API and media traffic inspection for developers",
   "icons": {
