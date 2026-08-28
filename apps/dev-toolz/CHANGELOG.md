@@ -6,6 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.1.22] - 2026-08-26
+
+### Changed
+
+- Renamed the combined media filter to **All media** and added an ungrouped **Stream endpoints** manifest-only mode.
+
+### Fixed
+
+- Media preflight requests no longer appear as stream endpoints.
+
+## [1.1.21] - 2026-08-26
+
+### Added
+
+- Added **Direct endpoints** and **Streaming traffic** Analysis modes.
+- Added derived `mediaKind` and `mediaRole` labels to traffic rows and JSON exports.
+
+## [1.1.20] - 2026-08-26
+
+### Added
+
+- Added session-only signed-URL copy/open actions plus **Copy yt-dlp** and **Copy ffmpeg** commands for live stream manifests.
+
+### Security
+
+- Raw signed manifest URLs exist only in extension session memory for explicit signed-URL and download-command actions.
+
+## [1.1.19] - 2026-08-26
+
+### Added
+
+- Added all-site, deny-list, and allow-list access modes using hostname rules that include subdomains.
+- Added per-request **Copy URL** and safe HTTP(S) **Open URL** actions in the traffic inspector.
+
+### Security
+
+- Site access rules fail closed for invalid page URLs, and non-HTTP(S) captured URLs cannot be opened from the inspector.
+- Sensitive query values remain redacted in stored, exported, and standard copy/open actions.
+
 ## [1.1.18] - 2026-08-26
 
 ### Added
@@ -191,7 +230,11 @@ Dev Toolz can now record and inspect active-tab API traffic before DevTools open
 
 - Initial Dev Toolz Chrome extension with page capture, popup controls, downloads, and extension settings.
 
-[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.18...HEAD
+[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.22...HEAD
+[1.1.22]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.21...v1.1.22
+[1.1.21]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.20...v1.1.21
+[1.1.20]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.19...v1.1.20
+[1.1.19]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.18...v1.1.19
 [1.1.18]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.17...v1.1.18
 [1.1.17]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.16...v1.1.17
 [1.1.16]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.15...v1.1.16

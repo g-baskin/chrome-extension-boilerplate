@@ -1,7 +1,10 @@
 import type { CaptureMetadata, CaptureRequest, CaptureResponse, CaptureScope } from "@/lib/capture";
+import { isSiteAllowed } from "@/lib/site-access";
 import "./content.css";
 
 console.log("[Content Script] Loaded on:", window.location.href);
+
+let siteEnabled = false;
 
 // Listen for messages from background or popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -9,12 +12,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   switch (message.type) {
     case "CONTENT_ACTION": {
+      if (!siteEnabled) {
+        sendResponse({
+          success: false,
+          error: "Dev Toolz is not allowed on this site",
+        });
+        break;
+      }
       const result = handleContentAction(message.payload);
       sendResponse({ success: true, data: result });
       break;
     }
 
     case "CAPTURE_SKILL_PAGE": {
+      if (!siteEnabled) {
+        sendResponse({
+          success: false,
+          error: "Dev Toolz is not allowed on this site",
+        });
+        break;
+      }
       handleCapturePage(message.payload)
         .then((response) => sendResponse({ success: true, data: response }))
         .catch((error) =>
@@ -580,13 +597,13 @@ function handleExtensionStateChange(enabled: boolean): void {
   console.log("[Content Script] Extension state changed:", enabled);
 
   if (enabled) {
-    // Extension enabled - activate features
-    document.body.classList.add("extension-active");
-  } else {
-    // Extension disabled - deactivate features
-    document.body.classList.remove("extension-active");
-    removeInjectedElements();
+    void init();
+    return;
   }
+
+  siteEnabled = false;
+  document.body.classList.remove("extension-active");
+  removeInjectedElements();
 }
 
 /**
@@ -671,16 +688,30 @@ async function init(): Promise<void> {
       payload: undefined,
     });
 
-    if (response?.success && response.data?.enabled) {
-      document.body.classList.add("extension-active");
-    }
+    siteEnabled = Boolean(
+      response?.success &&
+        response.data?.enabled &&
+        isSiteAllowed(window.location.href, {
+          mode: response.data.siteAccessMode,
+          sites: response.data.siteAccessSites,
+        })
+    );
+    document.body.classList.toggle("extension-active", siteEnabled);
+    if (!siteEnabled) removeInjectedElements();
   } catch (error) {
+    siteEnabled = false;
+    document.body.classList.remove("extension-active");
+    removeInjectedElements();
     console.error("[Content Script] Failed to get settings:", error);
   }
 }
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.settings) void init();
+});
+
 // Run initialization
-init();
+void init();
 
 // Export for type checking
 export {};

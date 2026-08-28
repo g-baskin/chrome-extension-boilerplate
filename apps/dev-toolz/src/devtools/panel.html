@@ -64,7 +64,10 @@
           <option value="discovery">Discovery: external or unattributed</option>
           <option value="writes">Writes: possible data changes</option>
           <option value="failures">Failures: errors and no response</option>
-          <option value="videos">Videos: streams, files, and segments</option>
+          <option value="videos">All media: every detected media request</option>
+          <option value="direct-videos">Direct endpoints: video and audio files</option>
+          <option value="stream-manifests">Stream endpoints: manifests only</option>
+          <option value="streaming-videos">Streaming traffic: manifests and related files</option>
         </select>
       </label>
       <label>
@@ -118,8 +121,10 @@
     <p id="analysis-mode-help" class="analysis-help">
       Target signals mode hides static assets, extension traffic, and Sentry telemetry. Focus combines
       writes, failures, cross-domain calls, and missing attribution. Discovery isolates external
-      and unattributed traffic. Videos groups files, manifests, audio, subtitles, encryption keys,
-      and stream segments without storing media bodies.
+      and unattributed traffic. All media includes every detected request. Direct endpoints isolates
+      video and audio files. Stream endpoints shows only HLS, DASH, and Smooth Streaming manifests.
+      Streaming traffic includes manifests, segments, subtitles, and encryption keys. Media bodies
+      are never stored.
     </p>
     <details class="method-guide">
       <summary>HTTP method guide</summary>

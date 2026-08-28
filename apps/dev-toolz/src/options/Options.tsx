@@ -3,11 +3,14 @@ import { sendToBackground } from "@/lib/messaging";
 import { onStorageChange, clearStorage } from "@/lib/storage";
 import { downloadDataAsFile } from "@/lib/download";
 import type { CaptureMetadata, CapturedPageEntry } from "@/lib/capture";
+import { normalizeSiteRule, type SiteAccessMode } from "@/lib/site-access";
 
 interface Settings {
   enabled: boolean;
   theme: "light" | "dark" | "system";
   notifications: boolean;
+  siteAccessMode: SiteAccessMode;
+  siteAccessSites: string[];
 }
 
 interface CaptureHistoryRow extends CaptureMetadata {
@@ -21,14 +24,17 @@ export function Options() {
   const [saved, setSaved] = useState(false);
   const [history, setHistory] = useState<CaptureHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [siteRules, setSiteRules] = useState("");
 
   useEffect(() => {
     loadSettings();
     loadCaptureHistory();
 
     const unsubscribe = onStorageChange((changes) => {
-      if (changes["settings"]) {
-        setSettings(changes["settings"].newValue as Settings);
+      if (changes["settings"]?.newValue) {
+        const nextSettings = changes["settings"].newValue as Settings;
+        setSettings(nextSettings);
+        setSiteRules(nextSettings.siteAccessSites.join("\n"));
       }
       if (changes["captureHistory"]) {
         const captures = (changes["captureHistory"].newValue as CapturedPageEntry[]) ?? [];
@@ -47,6 +53,7 @@ export function Options() {
       const response = await sendToBackground("GET_SETTINGS", undefined);
       if (response.success && response.data) {
         setSettings(response.data);
+        setSiteRules(response.data.siteAccessSites.join("\n"));
       }
     } catch (error) {
       console.error("Failed to load settings:", error);
@@ -86,6 +93,41 @@ export function Options() {
     } catch (error) {
       console.error("Failed to save setting:", error);
       setSettings(settings);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSiteAccess() {
+    if (!settings) return;
+
+    const lines = siteRules
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const normalized = lines.map(normalizeSiteRule);
+    const invalid = lines.filter((_line, index) => normalized[index] === null);
+    if (invalid.length > 0) {
+      alert(`Invalid site: ${invalid[0]}`);
+      return;
+    }
+
+    const sites = [
+      ...new Set(normalized.filter((site): site is string => site !== null)),
+    ].sort();
+    setSaving(true);
+    try {
+      const response = await sendToBackground("UPDATE_SETTINGS", {
+        siteAccessMode: settings.siteAccessMode,
+        siteAccessSites: sites,
+      });
+      if (!response.success) throw new Error(response.error ?? "Could not save site access");
+      setSettings({ ...settings, siteAccessSites: sites });
+      setSiteRules(sites.join("\n"));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error("Failed to save site access:", error);
     } finally {
       setSaving(false);
     }
@@ -168,6 +210,55 @@ export function Options() {
                 />
               </button>
             </div>
+          </div>
+
+          <div className="p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Site Access</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Control where Dev Toolz can activate and capture traffic. Entries include subdomains.
+            </p>
+            <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="site-access-mode">
+              Access mode
+            </label>
+            <select
+              id="site-access-mode"
+              value={settings?.siteAccessMode ?? "all"}
+              onChange={(event) =>
+                setSettings((current) =>
+                  current
+                    ? { ...current, siteAccessMode: event.target.value as SiteAccessMode }
+                    : current
+                )
+              }
+              disabled={saving}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="all">All sites</option>
+              <option value="deny">All sites except deny list</option>
+              <option value="allow">Only sites on allow list</option>
+            </select>
+            <label className="block text-sm font-medium text-gray-700 mt-4 mb-2" htmlFor="site-access-sites">
+              Sites, one per line
+            </label>
+            <textarea
+              id="site-access-sites"
+              value={siteRules}
+              onChange={(event) => setSiteRules(event.target.value)}
+              disabled={saving || settings?.siteAccessMode === "all"}
+              rows={6}
+              placeholder={"example.com\napi.example.org"}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm disabled:bg-gray-100"
+            />
+            <p className="mt-2 text-xs text-gray-500">
+              Use hostnames or full URLs. Sensitive URL values remain redacted in captured requests.
+            </p>
+            <button
+              onClick={saveSiteAccess}
+              disabled={saving}
+              className="mt-4 px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              Save Site Access
+            </button>
           </div>
 
           <div className="p-6">

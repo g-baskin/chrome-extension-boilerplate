@@ -47,6 +47,8 @@ export interface MessageTypes {
       enabled: boolean;
       theme: "light" | "dark" | "system";
       notifications: boolean;
+      siteAccessMode: "all" | "deny" | "allow";
+      siteAccessSites: string[];
     };
   };
 
@@ -55,6 +57,8 @@ export interface MessageTypes {
       enabled: boolean;
       theme: "light" | "dark" | "system";
       notifications: boolean;
+      siteAccessMode: "all" | "deny" | "allow";
+      siteAccessSites: string[];
     }>;
     response: { success: boolean };
   };
@@ -71,7 +75,13 @@ export interface MessageTypes {
 
   GET_API_CAPTURE_STATUS: {
     request: { tabId: number };
-    response: { hostname: string; paused: boolean; pausedUntil: number | null };
+    response: {
+      hostname: string;
+      paused: boolean;
+      pausedUntil: number | null;
+      allowed: boolean;
+      siteAccessMode: "all" | "deny" | "allow";
+    };
   };
 
   SET_API_CAPTURE_PAUSE: {

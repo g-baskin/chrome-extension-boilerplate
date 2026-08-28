@@ -19,6 +19,7 @@ type PendingRequest = {
   tabId: number;
   pageUrl: string;
   requestId: string;
+  sessionRequestUrl: string;
   resourceType: string;
   startedAt: string;
   startedTimestamp: number;
@@ -154,17 +155,19 @@ async function handleDebuggerEvent(
     const timestamp = readNumber(params, "timestamp") ?? 0;
     const wallTime = readNumber(params, "wallTime");
     const headers = toHeaders(asRecord(request.headers));
+    const sessionRequestUrl = readString(request, "url") ?? "";
     pendingRequests.set(key, {
       tabId,
       pageUrl: capturedTabUrls.get(tabId) ?? "",
       requestId,
+      sessionRequestUrl,
       resourceType: readString(params, "type") ?? "Other",
       startedAt: wallTime ? new Date(wallTime * 1000).toISOString() : new Date().toISOString(),
       startedTimestamp: timestamp,
       initiator: readInitiator(params.initiator),
       request: {
         method: readString(request, "method") ?? "GET",
-        url: redactUrl(readString(request, "url") ?? ""),
+        url: redactUrl(sessionRequestUrl),
         mimeType: findHeader(headers, "content-type"),
         headers: redactHeaders(headers),
         body: createOptionalBody(readString(request, "postData"), findHeader(headers, "content-type")),
@@ -277,6 +280,11 @@ async function persistExchange(
     mimeType: "",
     headers: [],
   };
+  const mediaKind = detectMediaKind(
+    pending.resourceType,
+    response.mimeType,
+    pending.request.url
+  );
   const saved = await saveApiExchange({
     pageUrl: redactUrl(pending.pageUrl),
     resourceType: pending.resourceType,
@@ -287,7 +295,15 @@ async function persistExchange(
     request: pending.request,
     response: { ...response, body },
   });
-  await chrome.runtime.sendMessage({ type: "API_TRAFFIC_CAPTURED", payload: saved }).catch(() => undefined);
+  await chrome.runtime
+    .sendMessage({
+      type: "API_TRAFFIC_CAPTURED",
+      payload: saved,
+      ...(mediaKind === "manifest"
+        ? { sessionRequestUrl: pending.sessionRequestUrl }
+        : {}),
+    })
+    .catch(() => undefined);
 }
 
 function shouldCapture(pending: PendingRequest): boolean {

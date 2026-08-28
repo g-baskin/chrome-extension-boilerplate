@@ -1,5 +1,4 @@
 import { detectMediaKind, saveHarEntry } from "../lib/api-traffic";
-import { getApiTrafficPauseStatus } from "../lib/api-traffic-pause";
 import { sendToBackground } from "../lib/messaging";
 
 let inspectedPageUrl = "";
@@ -16,7 +15,13 @@ chrome.devtools.network.onNavigated.addListener((url) => {
   void refreshPauseStatus();
 });
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes.apiTrafficPauses) void refreshPauseStatus();
+  if (
+    areaName === "local" &&
+    (changes.apiTrafficPauses || changes.settings)
+  ) {
+    capturePaused = true;
+    void refreshPauseStatus();
+  }
 });
 
 chrome.devtools.network.onRequestFinished.addListener((entry) => {
@@ -25,18 +30,23 @@ chrome.devtools.network.onRequestFinished.addListener((entry) => {
   const mimeType = entry.response.content.mimeType.toLowerCase();
   const resourceType =
     typeof entry._resourceType === "string" ? entry._resourceType : undefined;
+  const mediaKind = detectMediaKind(resourceType, mimeType, entry.request.url);
   const isApiRequest =
     entry._resourceType === "fetch" ||
     entry._resourceType === "xhr" ||
     mimeType.includes("application/json") ||
     mimeType.includes("+json") ||
-    detectMediaKind(resourceType, mimeType, entry.request.url) !== null;
+    mediaKind !== null;
   if (!isApiRequest) return;
 
   void saveHarEntry(entry, inspectedPageUrl)
     .then((saved) =>
       chrome.runtime
-        .sendMessage({ type: "API_TRAFFIC_CAPTURED", payload: saved })
+        .sendMessage({
+          type: "API_TRAFFIC_CAPTURED",
+          payload: saved,
+          ...(mediaKind === "manifest" ? { sessionRequestUrl: entry.request.url } : {}),
+        })
         .catch(() => undefined)
     )
     .catch((error: unknown) => {
@@ -50,8 +60,12 @@ chrome.devtools.network.onRequestFinished.addListener((entry) => {
 
 async function refreshPauseStatus(): Promise<void> {
   const pageUrl = inspectedPageUrl;
-  const status = await getApiTrafficPauseStatus(pageUrl);
-  if (pageUrl === inspectedPageUrl) capturePaused = status.paused;
+  const response = await sendToBackground("GET_API_CAPTURE_STATUS", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+  });
+  if (pageUrl === inspectedPageUrl) {
+    capturePaused = !response.success || !response.data?.allowed || response.data.paused;
+  }
 }
 
 function isContextInvalidatedError(error: unknown): boolean {

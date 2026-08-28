@@ -2,6 +2,7 @@ import { downloadDataAsFile } from "../lib/download";
 import { explainTraffic } from "../lib/traffic-explanation";
 import { sendToBackground } from "../lib/messaging";
 import type { ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
+import type { SiteAccessMode } from "../lib/site-access";
 import {
   clearApiTraffic,
   clearApiTrafficForPage,
@@ -10,12 +11,14 @@ import {
   detectMediaKind,
   getAllApiTraffic,
   getApiTrafficPage,
+  getMediaRole,
   matchesApiTraffic,
   type ApiBody,
   type ApiExchange,
   type ApiHeader,
   type ApiTrafficFilters,
   type MediaKind,
+  type MediaRole,
 } from "../lib/api-traffic";
 
 const JSON_TOKEN_REGEX =
@@ -63,11 +66,18 @@ let displayedExchanges: ApiExchange[] = [];
 let groupingMode: "nearby" | "site" | null = null;
 const hiddenEndpoints = new Set<string>();
 const hiddenMediaStreams = new Set<string>();
+const sessionManifestUrls = new Map<number, { url: string; pageHostname: string }>();
 
 void initializePanel();
 
 chrome.runtime.onMessage.addListener((message: unknown) => {
   if (!isCapturedMessage(message)) return false;
+  if (message.sessionRequestUrl && isHttpUrl(message.sessionRequestUrl)) {
+    sessionManifestUrls.set(message.payload.sequence, {
+      url: message.sessionRequestUrl,
+      pageHostname: getHostname(message.payload.pageUrl ?? ""),
+    });
+  }
   totalCount += 1;
   updateCount();
   updateScopeActions();
@@ -77,7 +87,7 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
       groupingMode ||
       hiddenEndpoints.size > 0 ||
       hiddenMediaStreams.size > 0 ||
-      analysisFilter.value === "videos"
+      isMediaAnalysisMode(analysisFilter.value)
     ) {
       renderDisplayedTraffic();
     }
@@ -101,7 +111,7 @@ exportResponses.addEventListener("click", async () => {
     const scope = currentSiteOnly ? pageHostname : "all-sites";
     downloadDataAsFile(
       `dev-toolz-${scope}-api-traffic.json`,
-      JSON.stringify(exchanges, null, 2),
+      JSON.stringify(exchanges.map(addMediaLabels), null, 2),
       "application/json"
     );
   } finally {
@@ -133,8 +143,15 @@ clearResponses.addEventListener("click", async () => {
   }
 
   try {
-    if (currentSiteOnly) await clearApiTrafficForPage(pageHostname);
-    else await clearApiTraffic();
+    if (currentSiteOnly) {
+      await clearApiTrafficForPage(pageHostname);
+      for (const [id, manifest] of sessionManifestUrls) {
+        if (manifest.pageHostname === pageHostname) sessionManifestUrls.delete(id);
+      }
+    } else {
+      await clearApiTraffic();
+      sessionManifestUrls.clear();
+    }
     totalCount = await countApiTraffic();
     updateCount();
     await resetDisplayedTraffic();
@@ -202,7 +219,12 @@ chrome.devtools.network.onNavigated.addListener((url) => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes.apiTrafficPauses) void refreshCaptureStatus();
+  if (
+    areaName === "local" &&
+    (changes.apiTrafficPauses || changes.settings)
+  ) {
+    void refreshCaptureStatus();
+  }
 });
 
 async function initializePanel(): Promise<void> {
@@ -255,9 +277,17 @@ function readFilters(): ApiTrafficFilters {
   const status = statusFilter.value;
   return {
     pageHostname: scopeFilter.value === "current" ? currentPageHostname : null,
-    analysis: ["target", "focus", "discovery", "writes", "failures", "videos"].includes(
-      analysis
-    )
+    analysis: [
+      "target",
+      "focus",
+      "discovery",
+      "writes",
+      "failures",
+      "videos",
+      "direct-videos",
+      "stream-manifests",
+      "streaming-videos",
+    ].includes(analysis)
       ? (analysis as ApiTrafficFilters["analysis"])
       : "",
     domain: domainFilter.value.trim(),
@@ -325,13 +355,19 @@ async function updateCapturePause(): Promise<void> {
     tabId: chrome.devtools.inspectedWindow.tabId,
     durationMs,
   });
-  if (response.success && response.data) renderCaptureStatus(response.data);
+  if (response.success) await refreshCaptureStatus();
   else renderCaptureUnavailable();
 }
 
-function renderCaptureStatus(status: ApiTrafficPauseStatus): void {
+function renderCaptureStatus(
+  status: ApiTrafficPauseStatus & { allowed: boolean; siteAccessMode: SiteAccessMode }
+): void {
   const statusText = status.hostname
-    ? status.paused
+    ? !status.allowed
+      ? status.siteAccessMode === "allow"
+        ? `Not on allow list: ${status.hostname}`
+        : `Blocked: ${status.hostname}`
+      : status.paused
       ? status.pausedUntil === null
         ? `Paused: ${status.hostname}`
         : `Paused until ${new Date(status.pausedUntil).toLocaleTimeString([], {
@@ -341,6 +377,11 @@ function renderCaptureStatus(status: ApiTrafficPauseStatus): void {
       : `Capturing: ${status.hostname}`
     : "No website selected";
   const options = [createOption("", statusText)];
+  if (!status.allowed) {
+    captureSite.replaceChildren(...options);
+    captureSite.disabled = true;
+    return;
+  }
   if (status.paused) options.push(createOption("resume", "Resume this site"));
   else if (status.hostname) {
     options.push(
@@ -398,21 +439,24 @@ function renderDisplayedTraffic(): void {
     return;
   }
 
-  const videoMode = analysisFilter.value === "videos";
-  const items = videoMode
+  const videoMode = isMediaAnalysisMode(analysisFilter.value);
+  const groupMedia = videoMode && analysisFilter.value !== "stream-manifests";
+  const items = groupMedia
     ? createMediaGroups(visibleExchanges)
-    : groupingMode
-      ? createTrafficGroups(
-          visibleExchanges,
-          groupingMode === "nearby" ? DUPLICATE_WINDOW_MS : null
-        )
-      : visibleExchanges;
+    : videoMode
+      ? visibleExchanges
+      : groupingMode
+        ? createTrafficGroups(
+            visibleExchanges,
+            groupingMode === "nearby" ? DUPLICATE_WINDOW_MS : null
+          )
+        : visibleExchanges;
   requestList.replaceChildren(
     ...items.map((item) =>
       isTrafficGroup(item) && item.exchanges.length > 1
         ? createGroup(
             item,
-            videoMode ? "stream" : groupingMode === "site" ? "site-history" : "nearby"
+            groupMedia ? "stream" : groupingMode === "site" ? "site-history" : "nearby"
           )
         : createExchange(isTrafficGroup(item) ? item.exchanges[0] : item)
     )
@@ -421,13 +465,43 @@ function renderDisplayedTraffic(): void {
 
 function createExchange(exchange: ApiExchange): HTMLElement {
   const article = document.createElement("article");
+  const mediaKind = detectMediaKind(
+    exchange.resourceType,
+    exchange.response.mimeType,
+    exchange.request.url
+  );
+  const mediaRole = getMediaRole(mediaKind);
   const heading = document.createElement("h2");
   heading.textContent = `${exchange.request.method} ${exchange.request.url}`;
   heading.title = exchange.request.url;
   const headingRow = document.createElement("div");
   headingRow.className = "exchange-heading";
+  const actions = document.createElement("div");
+  actions.className = "exchange-actions";
+  const sessionManifest =
+    mediaKind === "manifest" && exchange.sequence !== undefined
+      ? sessionManifestUrls.get(exchange.sequence)
+      : undefined;
+  const actionableUrl = sessionManifest?.url ?? exchange.request.url;
+  const copyUrl = createCopyButton(
+    sessionManifest ? "Copy signed URL" : "Copy URL",
+    actionableUrl
+  );
+  const openUrl = createOpenUrlButton(
+    actionableUrl,
+    sessionManifest ? "Open signed URL" : "Open URL"
+  );
   const hideEndpoint = createHideEndpointButton(exchange.request.url);
-  headingRow.append(heading, hideEndpoint);
+  actions.append(copyUrl, ...(openUrl ? [openUrl] : []));
+  if (sessionManifest) {
+    const quotedUrl = quoteShellArgument(sessionManifest.url);
+    actions.append(
+      createCopyButton("Copy yt-dlp", `yt-dlp -- ${quotedUrl}`),
+      createCopyButton("Copy ffmpeg", `ffmpeg -i ${quotedUrl} -c copy video.mp4`)
+    );
+  }
+  actions.appendChild(hideEndpoint);
+  headingRow.append(heading, actions);
   article.appendChild(headingRow);
 
   const summary = document.createElement("p");
@@ -436,15 +510,12 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   const time = Number.isNaN(startedAt.getTime())
     ? exchange.startedAt
     : startedAt.toLocaleTimeString();
-  const mediaKind = detectMediaKind(
-    exchange.resourceType,
-    exchange.response.mimeType,
-    exchange.request.url
-  );
   summary.textContent =
     `${time} · ← ${exchange.response.status} ${exchange.response.statusText}` +
     ` · ${exchange.response.mimeType || "unknown type"}` +
-    (mediaKind ? ` · Media: ${formatMediaKind(mediaKind)}` : "") +
+    (mediaKind
+      ? ` · Media: ${formatMediaKind(mediaKind)} · Role: ${mediaRole}`
+      : "") +
     (mediaKind && exchange.transferSize !== undefined
       ? ` · ${formatByteSize(exchange.transferSize)}`
       : "") +
@@ -557,6 +628,10 @@ function isExchangeHidden(exchange: ApiExchange): boolean {
     : false;
 }
 
+function isMediaAnalysisMode(value: string): boolean {
+  return ["videos", "direct-videos", "stream-manifests", "streaming-videos"].includes(value);
+}
+
 function formatMediaKind(mediaKind: MediaKind): string {
   if (mediaKind === "manifest") return "stream manifest";
   if (mediaKind === "subtitle") return "subtitles";
@@ -630,7 +705,7 @@ function createHideStreamButton(streamKey: string): HTMLButtonElement {
 }
 
 function updateGroupingButtons(): void {
-  const videoMode = analysisFilter.value === "videos";
+  const videoMode = isMediaAnalysisMode(analysisFilter.value);
   const nearbyDuplicateCount = createTrafficGroups(
     displayedExchanges,
     DUPLICATE_WINDOW_MS
@@ -762,6 +837,43 @@ function createCodeBlock(value: string, highlight = false): HTMLPreElement {
   return pre;
 }
 
+function createOpenUrlButton(rawUrl: string, label: string): HTMLButtonElement | null {
+  if (!isHttpUrl(rawUrl)) return null;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", () => {
+    window.open(rawUrl, "_blank", "noopener,noreferrer");
+  });
+  return button;
+}
+
+function addMediaLabels(exchange: ApiExchange): ApiExchange & {
+  mediaKind: MediaKind | null;
+  mediaRole: MediaRole | null;
+} {
+  const mediaKind = detectMediaKind(
+    exchange.resourceType,
+    exchange.response.mimeType,
+    exchange.request.url
+  );
+  return { ...exchange, mediaKind, mediaRole: getMediaRole(mediaKind) };
+}
+
+function quoteShellArgument(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function isHttpUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function createCopyButton(label: string, value: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -809,10 +921,20 @@ function updateCount(): void {
 
 function isCapturedMessage(
   message: unknown
-): message is { type: "API_TRAFFIC_CAPTURED"; payload: ApiExchange } {
+): message is {
+  type: "API_TRAFFIC_CAPTURED";
+  payload: ApiExchange & { sequence: number };
+  sessionRequestUrl?: string;
+} {
   if (!isRecord(message) || message.type !== "API_TRAFFIC_CAPTURED") return false;
   const payload = message.payload;
-  if (!isRecord(payload) || !isRecord(payload.request) || !isRecord(payload.response)) {
+  if (
+    (message.sessionRequestUrl !== undefined &&
+      typeof message.sessionRequestUrl !== "string") ||
+    !isRecord(payload) ||
+    !isRecord(payload.request) ||
+    !isRecord(payload.response)
+  ) {
     return false;
   }
   return (

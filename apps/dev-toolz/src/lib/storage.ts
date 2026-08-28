@@ -15,6 +15,7 @@
  */
 
 import { CapturedPageEntry, CAPTURE_HISTORY_LIMIT } from "@/lib/capture";
+import type { SiteAccessMode } from "@/lib/site-access";
 
 export interface StorageSchema {
   // Extension settings - add your settings here
@@ -22,6 +23,8 @@ export interface StorageSchema {
     enabled: boolean;
     theme: "light" | "dark" | "system";
     notifications: boolean;
+    siteAccessMode: SiteAccessMode;
+    siteAccessSites: string[];
   };
   // User data - add user-specific data here
   userData: {
@@ -178,6 +181,8 @@ export const defaultSettings: StorageSchema["settings"] = {
   enabled: true,
   theme: "system",
   notifications: true,
+  siteAccessMode: "all",
+  siteAccessSites: [],
 };
 
 /**
@@ -199,6 +204,8 @@ export async function initializeStorage(): Promise<void> {
   const settings = await getStorage("settings");
   if (!settings) {
     await setStorage("settings", defaultSettings);
+  } else if (settings.siteAccessMode === undefined || settings.siteAccessSites === undefined) {
+    await setStorage("settings", { ...defaultSettings, ...settings });
   }
 
   const userData = await getStorage("userData");

@@ -15,6 +15,7 @@ import {
   defaultSettings,
 } from "@/lib/storage";
 import type { CapturedPageSummary } from "@/lib/capture";
+import { isSiteAllowed, normalizeSiteRule } from "@/lib/site-access";
 import {
   getApiTrafficPauseStatus,
   setApiTrafficPause,
@@ -30,10 +31,10 @@ console.log("[Background] Service worker started");
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log("[Background] Extension installed:", details.reason);
+  await initializeStorage();
 
   if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
     // First-time installation
-    await initializeStorage();
     console.log("[Background] Storage initialized with defaults");
 
     // Optional: Open welcome/onboarding page
@@ -47,6 +48,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       details.previousVersion
     );
   }
+  await syncApiTrafficCapture();
 });
 
 // Handle extension startup (browser restart, etc.)
@@ -68,14 +70,38 @@ createMessageHandler({
 
   GET_SETTINGS: async () => {
     const settings = await getStorage("settings");
-    return settings ?? defaultSettings;
+    return { ...defaultSettings, ...settings };
   },
 
   UPDATE_SETTINGS: async (payload) => {
-    const currentSettings = (await getStorage("settings")) ?? defaultSettings;
-    const newSettings = { ...currentSettings, ...payload };
+    if (
+      payload.siteAccessMode !== undefined &&
+      !["all", "deny", "allow"].includes(payload.siteAccessMode)
+    ) {
+      throw new Error("Unsupported site access mode");
+    }
+    const siteAccessSites = payload.siteAccessSites?.map((value) => {
+      const site = normalizeSiteRule(value);
+      if (!site) throw new Error("Invalid site access rule");
+      return site;
+    });
+
+    const currentSettings = { ...defaultSettings, ...(await getStorage("settings")) };
+    const newSettings = {
+      ...currentSettings,
+      ...payload,
+      ...(siteAccessSites
+        ? { siteAccessSites: [...new Set(siteAccessSites)].sort() }
+        : {}),
+    };
     await setStorage("settings", newSettings);
-    if (payload.enabled !== undefined) await syncApiTrafficCapture();
+    if (
+      payload.enabled !== undefined ||
+      payload.siteAccessMode !== undefined ||
+      payload.siteAccessSites !== undefined
+    ) {
+      await syncApiTrafficCapture();
+    }
     return { success: true };
   },
 
@@ -114,8 +140,20 @@ createMessageHandler({
   },
 
   GET_API_CAPTURE_STATUS: async ({ tabId }) => {
-    const tab = await chrome.tabs.get(tabId);
-    return getApiTrafficPauseStatus(tab.url ?? "");
+    const [tab, storedSettings] = await Promise.all([
+      chrome.tabs.get(tabId),
+      getStorage("settings"),
+    ]);
+    const settings = { ...defaultSettings, ...storedSettings };
+    const pageUrl = tab.url ?? "";
+    return {
+      ...(await getApiTrafficPauseStatus(pageUrl)),
+      allowed: isSiteAllowed(pageUrl, {
+        mode: settings.siteAccessMode,
+        sites: settings.siteAccessSites,
+      }),
+      siteAccessMode: settings.siteAccessMode,
+    };
   },
 
   SET_API_CAPTURE_PAUSE: async ({ tabId, durationMs }) => {
@@ -269,7 +307,13 @@ async function syncApiTrafficCapture(expectedTabId?: number): Promise<void> {
   }
 
   const status = await getApiTrafficPauseStatus(url);
-  if (status.paused) {
+  if (
+    status.paused ||
+    !isSiteAllowed(url, {
+      mode: settings?.siteAccessMode ?? defaultSettings.siteAccessMode,
+      sites: settings?.siteAccessSites ?? defaultSettings.siteAccessSites,
+    })
+  ) {
     if (revision === apiTrafficCaptureRevision) await stopApiTrafficCapture();
     return;
   }

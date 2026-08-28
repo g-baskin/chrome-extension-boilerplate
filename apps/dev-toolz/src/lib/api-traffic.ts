@@ -6,6 +6,7 @@ export type MediaKind =
   | "segment"
   | "subtitle"
   | "key";
+export type MediaRole = "direct" | "stream";
 export type ApiBody =
   | { kind: "json"; value: unknown }
   | { kind: "malformed-json"; raw: string; error: string }
@@ -13,7 +14,17 @@ export type ApiBody =
 
 export type ApiTrafficFilters = {
   pageHostname: string | null;
-  analysis: "" | "target" | "focus" | "discovery" | "writes" | "failures" | "videos";
+  analysis:
+    | ""
+    | "target"
+    | "focus"
+    | "discovery"
+    | "writes"
+    | "failures"
+    | "videos"
+    | "direct-videos"
+    | "stream-manifests"
+    | "streaming-videos";
   domain: string;
   attribution:
     | ""
@@ -72,6 +83,7 @@ export function detectMediaKind(
 ): MediaKind | null {
   const normalizedMimeType = mimeType.toLowerCase();
   const normalizedResourceType = resourceType?.toLowerCase();
+  if (normalizedResourceType === "preflight") return null;
   const hasMediaContext =
     normalizedResourceType === "media" ||
     normalizedMimeType.startsWith("video/") ||
@@ -132,6 +144,12 @@ export function detectMediaKind(
   }
   return normalizedResourceType === "media" ? "video" : null;
 }
+
+export function getMediaRole(mediaKind: MediaKind | null): MediaRole | null {
+  if (mediaKind === "video" || mediaKind === "audio") return "direct";
+  return mediaKind ? "stream" : null;
+}
+
 export function createApiBody(raw: string, mimeType: string): ApiBody {
   try {
     return { kind: "json", value: redactJson(JSON.parse(raw) as unknown) };
@@ -280,6 +298,7 @@ export function matchesApiTraffic(
     exchange.response.mimeType,
     exchange.request.url
   );
+  const mediaRole = getMediaRole(mediaKind);
   const isStaticAsset =
     responseMimeType.startsWith("text/css") ||
     responseMimeType.startsWith("image/") ||
@@ -302,7 +321,10 @@ export function matchesApiTraffic(
     (filters.analysis === "discovery" && isDiscovery) ||
     (filters.analysis === "writes" && isWrite) ||
     (filters.analysis === "failures" && isFailure) ||
-    (filters.analysis === "videos" && mediaKind !== null);
+    (filters.analysis === "videos" && mediaKind !== null) ||
+    (filters.analysis === "direct-videos" && mediaRole === "direct") ||
+    (filters.analysis === "stream-manifests" && mediaKind === "manifest") ||
+    (filters.analysis === "streaming-videos" && mediaRole === "stream");
   const attributionMatches =
     !filters.attribution ||
     (filters.attribution === "unknown" &&
