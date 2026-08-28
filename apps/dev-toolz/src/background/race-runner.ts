@@ -68,7 +68,7 @@ export async function runRaceFlow(request: RaceRunRequest): Promise<RaceRunResul
   try {
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: request.tabId },
-      world: "MAIN",
+      world: "ISOLATED",
       func: executeRaceInPage,
       args: [{
         runId: request.runId,
@@ -91,7 +91,7 @@ export async function cancelRaceFlow(tabId: number, runId: string): Promise<{ ca
   if (activeRuns.get(tabId) !== runId) return { cancelled: false };
   await chrome.scripting.executeScript({
     target: { tabId },
-    world: "MAIN",
+    world: "ISOLATED",
     func: (id: string) => {
       const target = window as RaceWindow;
       const controller = target.__devToolzRaceControllers?.get(id);
