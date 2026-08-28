@@ -19,12 +19,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes.apiTrafficPauses) void refreshPauseStatus();
 });
 
-chrome.devtools.panels.create(
-  "Dev Toolz",
-  "public/icons/icon-16.png",
-  "src/devtools/panel.html"
-);
-
 chrome.devtools.network.onRequestFinished.addListener((entry) => {
   if (!chrome.runtime.id || capturePaused) return;
 
