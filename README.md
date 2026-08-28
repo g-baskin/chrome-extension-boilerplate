@@ -58,8 +58,10 @@ Each extension owns its manifest, permissions, assets, source, configuration, an
 
 - Inspect persistent HTTP, GraphQL, WebSocket, SSE, WebTransport, and media traffic.
 - Export a conservative observed OpenAPI 3.1 draft and compare a local JSON baseline.
-- Save captured same-origin request flows and manually run a 2–10 request synchronized race.
-- Race replay strips sensitive headers, blocks cross-origin requests and redirects, and caps responses.
+- Send Recon-captured same-origin or cross-origin HTTP(S) API requests into Race Lab.
+- Manually run a 2–10 request synchronized race with redirect and response-size limits.
+- Keep redaction enabled by default for sensitive URLs, headers, bodies, and protocol payloads.
+- Temporarily disable redaction in **Options → Redaction coverage** to inspect raw new captures.
 - Use active testing only on sites you own or are authorized to assess.
 
 ## Load Dev Toolz in Chrome
@@ -69,6 +71,19 @@ Each extension owns its manifest, permissions, assets, source, configuration, an
 3. Enable **Developer mode**.
 4. Click **Load unpacked**.
 5. Select `apps/dev-toolz/dist`.
+
+## Recon → Race Lab
+
+1. Open DevTools on your SaaS app and select **Dev Toolz**.
+2. Let Recon capture the API request you want to verify.
+3. Expand the request and click **Add to flow**.
+4. Open **Race Lab**, choose the race step and concurrency, then run it.
+
+Cross-origin API requests are accepted only when they came from captured traffic on the inspected page. Edited steps and non-HTTP(S) targets are rejected. Browser CORS and cookie policies still apply.
+
+## Redaction coverage
+
+Redaction is enabled by default and applies before new traffic reaches local extension storage. Disable it only while inspecting test data you control. Raw mode may store passwords, tokens, cookies, personal data, multipart bodies, and protocol payloads in plaintext. Re-enable redaction after verification; changing the toggle does not rewrite earlier captures.
 
 ## Shared Code
 
