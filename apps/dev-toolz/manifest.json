@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.7.16",
+  "version": "1.7.17",
   "minimum_chrome_version": "118",
   "homepage_url": "https://backroomsoftware.com",
   "description": "API traffic, protocol, spec drift, and bounded race inspection for developers",

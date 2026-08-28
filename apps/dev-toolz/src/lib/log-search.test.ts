@@ -49,7 +49,7 @@ const protocolEvent: ProtocolEvent = {
     transition: "new-window",
     mayHaveMissedInitialRequests: true,
   },
-  url: "wss://api.viralvue.com/graphql",
+  url: "wss://api.viralvue.com:8443/graphql",
   transport: "websocket",
   kind: "message",
   direction: "received",
@@ -71,6 +71,8 @@ describe("log search", () => {
     expect(api.fields["response.body.summaries"]).toEqual(["[]"]);
     expect(protocol).toMatchObject({ source: "red-team", id: "red-team-9" });
     expect(protocol.fields.transport).toEqual(["websocket"]);
+    expect(protocol.fields.scheme).toEqual(["wss"]);
+    expect(protocol.fields.port).toEqual(["8443"]);
     expect(protocol.fields["capture.transition"]).toEqual(["new-window"]);
     expect(protocol.fields["capture.previous_page_host"]).toEqual(["origin.example"]);
   });

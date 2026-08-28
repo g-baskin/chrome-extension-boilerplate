@@ -73,6 +73,7 @@ import { enforceTrafficRetention } from "../lib/traffic-retention";
 import {
   extractGraphqlOperation,
   getProtocolEvents,
+  getProtocolPort,
   matchesProtocolEvent,
   type ProtocolEvent,
   type ProtocolFilters,
@@ -162,6 +163,7 @@ const showTrafficSection = requireButton("show-traffic-section");
 const showRedTeamSection = requireButton("show-red-team-section");
 const refreshRecon = requireButton("refresh-recon");
 const reconScope = requireSelect("recon-scope");
+const reconGrouping = requireSelect("recon-grouping");
 const reconCount = requireElement("recon-count");
 const reconState = requireElement("recon-state");
 const reconTableRegion = requireElement("recon-table-region");
@@ -176,6 +178,7 @@ const protocolForm = requireForm("protocol-filters");
 const protocolScope = requireSelect("protocol-scope");
 const protocolTransport = requireSelect("protocol-transport");
 const protocolDirection = requireSelect("protocol-direction");
+const protocolPort = requireInput("protocol-port");
 const protocolOperation = requireInput("protocol-operation");
 const protocolText = requireInput("protocol-text");
 const protocolState = requireElement("protocol-state");
@@ -269,6 +272,7 @@ logSearchClear.addEventListener("click", () => {
 });
 refreshRecon.addEventListener("click", () => void refreshReconWorkspace());
 reconScope.addEventListener("change", renderReconWorkspace);
+reconGrouping.addEventListener("change", renderReconWorkspace);
 for (const [tool, controls] of Object.entries(redTeamTools)) {
   controls.button.addEventListener("click", () => void setActiveRedTeamTool(tool as RedTeamTool));
 }
@@ -979,6 +983,7 @@ function readProtocolFilters(): ProtocolFilters {
     pageHostname: protocolScope.value === "current" ? currentPageHostname : null,
     transport,
     direction,
+    port: protocolPort.value.trim(),
     operationName: protocolOperation.value.trim(),
     text: protocolText.value.trim(),
   };
@@ -1098,8 +1103,18 @@ function createProtocolEventView(event: ProtocolEvent): HTMLElement {
   );
   try {
     const url = new URL(event.url);
+    const port = getProtocolPort(event.url);
+    const scheme = url.protocol.slice(0, -1);
     fields.append(
+      createLogFilterButton("scheme", scheme, `scheme=${scheme}`, "red-team", logRecord),
       createLogFilterButton("host", url.hostname, `host=${url.hostname}`, "red-team", logRecord),
+      createLogFilterButton(
+        "port",
+        port,
+        `port=${port}${url.port ? "" : " (default)"}`,
+        "red-team",
+        logRecord
+      ),
       createLogFilterButton("path", url.pathname, `path=${url.pathname}`, "red-team", logRecord)
     );
   } catch {
@@ -1534,7 +1549,11 @@ function renderReconWorkspace(): void {
 
   reconState.hidden = true;
   reconTableRegion.hidden = false;
-  reconEndpoints.replaceChildren(...endpoints.map(createReconEndpointRow));
+  reconEndpoints.replaceChildren(
+    ...(reconGrouping.value === "flat"
+      ? endpoints.map(createReconEndpointRow)
+      : createReconDomainRows(endpoints))
+  );
 }
 
 function showReconEmpty(message: string): void {
@@ -1725,6 +1744,46 @@ function collectReconSignals(endpoint: ReconEndpoint, exchange: ApiExchange): vo
   } else if (isRecord(body.value)) {
     for (const name of Object.keys(body.value)) endpoint.bodyFields.add(name);
   }
+}
+
+function createReconDomainRows(endpoints: ReconEndpoint[]): HTMLTableRowElement[] {
+  const domains = new Map<string, ReconEndpoint[]>();
+  for (const endpoint of endpoints) {
+    const domain = endpoint.hostname || "Unknown host";
+    const grouped = domains.get(domain);
+    if (grouped) grouped.push(endpoint);
+    else domains.set(domain, [endpoint]);
+  }
+
+  return [...domains.entries()]
+    .sort(([leftDomain, left], [rightDomain, right]) =>
+      sumReconRequests(right) - sumReconRequests(left) || leftDomain.localeCompare(rightDomain)
+    )
+    .flatMap(([domain, groupedEndpoints]) => {
+      const rows = groupedEndpoints.map(createReconEndpointRow);
+      const header = document.createElement("tr");
+      header.className = "recon-domain-row";
+      const cell = document.createElement("td");
+      cell.colSpan = 5;
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "recon-domain-toggle";
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.textContent = `▾ ${domain} · ${sumReconRequests(groupedEndpoints)} requests · ${groupedEndpoints.length} endpoints`;
+      toggle.addEventListener("click", () => {
+        const expanded = toggle.getAttribute("aria-expanded") === "true";
+        toggle.setAttribute("aria-expanded", String(!expanded));
+        toggle.textContent = `${expanded ? "▸" : "▾"} ${domain} · ${sumReconRequests(groupedEndpoints)} requests · ${groupedEndpoints.length} endpoints`;
+        for (const row of rows) row.hidden = expanded;
+      });
+      cell.appendChild(toggle);
+      header.appendChild(cell);
+      return [header, ...rows];
+    });
+}
+
+function sumReconRequests(endpoints: ReconEndpoint[]): number {
+  return endpoints.reduce((total, endpoint) => total + endpoint.requestCount, 0);
 }
 
 function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {

@@ -299,6 +299,9 @@
           <label>Evidence scope
             <select id="recon-scope"><option value="current">Current site</option><option value="all">All captured history</option></select>
           </label>
+          <label>View
+            <select id="recon-grouping"><option value="domain">Group by domain</option><option value="flat">Flat endpoints</option></select>
+          </label>
           <span id="recon-count" aria-live="polite">Not loaded</span>
           <button id="refresh-recon" type="button">Refresh inventory</button>
         </div>
@@ -315,6 +318,7 @@
           <label>Scope<select id="protocol-scope"><option value="current">Current site</option><option value="all">All sites</option></select></label>
           <label>Transport<select id="protocol-transport"><option value="">All</option><option value="graphql-http">GraphQL HTTP</option><option value="websocket">WebSocket</option><option value="sse">SSE</option><option value="webtransport">WebTransport</option></select></label>
           <label>Direction<select id="protocol-direction"><option value="">All</option><option value="sent">Sent</option><option value="received">Received</option><option value="none">Lifecycle</option></select></label>
+          <label>Port<input id="protocol-port" type="search" inputmode="numeric" placeholder="443" /></label>
           <label>Operation<input id="protocol-operation" type="search" placeholder="Operation name" /></label>
           <label>Text<input id="protocol-text" type="search" placeholder="URL or payload" /></label>
           <button type="submit">Apply</button>

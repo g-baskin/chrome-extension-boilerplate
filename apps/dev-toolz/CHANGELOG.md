@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.7.17] - 2026-08-28
+
+### Added
+
+- Red Team Recon now groups endpoint calls into collapsible exact-hostname sections, ordered by request volume.
+- Recon keeps a flat endpoint view available for direct route scanning.
+- Protocols now shows selectable scheme, host, effective port, and path fields, with direct port filtering.
+
 ## [1.7.16] - 2026-08-28
 
 ### Fixed

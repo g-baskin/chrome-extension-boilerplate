@@ -1044,6 +1044,30 @@ pre {
   white-space: nowrap;
 }
 
+.recon-domain-row td {
+  padding: 0;
+  background: color-mix(in srgb, CanvasText 5%, Canvas);
+}
+
+.recon-domain-toggle {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  color: CanvasText;
+  font: 600 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-align: left;
+}
+
+.recon-domain-toggle:hover {
+  background: color-mix(in srgb, Highlight 10%, transparent);
+}
+
+.recon-domain-toggle:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: -2px;
+}
+
 .recon-table tbody tr:last-child td {
   border-bottom: 0;
 }

@@ -1,6 +1,6 @@
 import { extractApiFields } from "./api-fields";
 import type { ApiExchange } from "./api-traffic";
-import type { ProtocolEvent } from "./protocol-traffic";
+import { getProtocolPort, type ProtocolEvent } from "./protocol-traffic";
 
 export const LOG_SEARCH_LIMITS = {
   queryCharacters: 2_000,
@@ -104,7 +104,7 @@ export function createApiMetadataLogRecord(exchange: ApiExchange): LogRecord {
 }
 
 const METADATA_FIELDS = new Set([
-  "source", "method", "status", "host", "path", "page.host", "request.method",
+  "source", "method", "status", "scheme", "host", "port", "path", "page.host", "request.method",
   "response.status", "response.mime_type", "resource_type", "duration_ms", "initiator.kind",
   "transport", "kind", "direction", "session", "event", "graphql.operation", "graphql.type",
   "capture.tab_id", "capture.window_id", "capture.opener_tab_id", "capture.attached_at",
@@ -132,7 +132,9 @@ export function createProtocolLogRecord(event: ProtocolEvent): LogRecord {
     ["transport", event.transport],
     ["kind", event.kind],
     ["direction", event.direction],
+    ["scheme", scheme(event.url)],
     ["host", hostname(event.url)],
+    ["port", getProtocolPort(event.url)],
     ["path", pathname(event.url)],
     ["page.host", hostname(event.pageUrl)],
     ["session", event.sessionId],
@@ -489,6 +491,10 @@ function buildSearchableText(
   return `${title} ${summary} ${Object.entries(fields).flatMap(([name, values]) => values.map((value) => `${name} ${value}`)).join(" ")} ${payload}`
     .slice(0, LOG_SEARCH_LIMITS.searchableCharacters)
     .toLowerCase();
+}
+
+function scheme(rawUrl: string): string {
+  try { return new URL(rawUrl).protocol.slice(0, -1); } catch { return ""; }
 }
 
 function hostname(rawUrl: string): string {

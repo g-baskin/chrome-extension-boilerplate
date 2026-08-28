@@ -3,6 +3,7 @@ import {
   boundProtocolPayload,
   createProtocolEvent,
   extractGraphqlOperation,
+  getProtocolPort,
   MAX_PROTOCOL_PAYLOAD_BYTES,
   matchesProtocolEvent,
 } from "./protocol-traffic";
@@ -42,11 +43,11 @@ describe("protocol traffic", () => {
     expect(oversized.payloadBytes).toBe(MAX_PROTOCOL_PAYLOAD_BYTES + 1);
   });
 
-  it("redacts JSON payloads and filters direction and session text", () => {
+  it("redacts JSON payloads and filters direction, port, and session text", () => {
     const event = createProtocolEvent({
       sessionId: "socket-1",
       pageUrl: "https://example.com/page",
-      url: "wss://example.com/graphql?token=secret",
+      url: "wss://example.com:8443/graphql?token=[REDACTED]",
       transport: "websocket",
       kind: "frame",
       direction: "sent",
@@ -56,10 +57,13 @@ describe("protocol traffic", () => {
     });
     expect(event.url).not.toContain("secret");
     expect(event.payload).not.toContain("secret");
+    expect(getProtocolPort(event.url)).toBe("8443");
+    expect(getProtocolPort("wss://example.com/graphql")).toBe("443");
     expect(matchesProtocolEvent(event, {
       pageHostname: "example.com",
       transport: "websocket",
       direction: "sent",
+      port: "8443",
       operationName: "view",
       text: "graphql",
     })).toBe(true);

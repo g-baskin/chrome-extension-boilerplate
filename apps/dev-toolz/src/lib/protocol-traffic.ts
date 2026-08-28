@@ -35,6 +35,7 @@ export type ProtocolFilters = {
   pageHostname: string | null;
   transport: "" | ProtocolTransport;
   direction: "" | ProtocolDirection;
+  port: string;
   operationName: string;
   text: string;
 };
@@ -169,6 +170,20 @@ export async function getProtocolEvents(
   });
 }
 
+export function getProtocolPort(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    if (url.port) return url.port;
+    return url.protocol === "https:" || url.protocol === "wss:"
+      ? "443"
+      : url.protocol === "http:" || url.protocol === "ws:"
+        ? "80"
+        : "";
+  } catch {
+    return "";
+  }
+}
+
 export function matchesProtocolEvent(event: ProtocolEvent, filters: ProtocolFilters): boolean {
   const hostname = (raw: string): string => {
     try { return new URL(raw).hostname.toLowerCase(); } catch { return ""; }
@@ -178,6 +193,7 @@ export function matchesProtocolEvent(event: ProtocolEvent, filters: ProtocolFilt
     (filters.pageHostname === null || hostname(event.pageUrl) === filters.pageHostname) &&
     (!filters.transport || event.transport === filters.transport) &&
     (!filters.direction || event.direction === filters.direction) &&
+    (!filters.port || getProtocolPort(event.url) === filters.port) &&
     (!filters.operationName || event.graphql?.name?.toLowerCase().includes(filters.operationName.toLowerCase()) === true) &&
     (!search || `${event.url} ${event.eventName ?? ""} ${event.payload ?? ""}`.toLowerCase().includes(search))
   );
