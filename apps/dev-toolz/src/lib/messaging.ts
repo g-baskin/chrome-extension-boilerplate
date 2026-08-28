@@ -113,6 +113,12 @@ export function createMessageHandler(
   }>
 ): void {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Reject messages from other extensions or external pages
+    if (sender.id !== chrome.runtime.id) {
+      console.warn("[Messaging] Rejected message from foreign sender:", sender.id);
+      return false;
+    }
+
     const { type, payload } = message as Message;
     const handler = handlers[type] as
       | ((payload: unknown, sender: chrome.runtime.MessageSender) => Promise<unknown> | unknown)
