@@ -51,16 +51,25 @@ afterEach(async () => {
 });
 
 describe("race flows", () => {
-  it("sanitizes snapshots and accepts a valid same-origin flow", () => {
-    const flow = validFlow();
+  it("accepts captured cross-origin API requests while sanitizing headers", () => {
+    const captured = exchange();
+    captured.request.url = "https://api.example.net/transfer";
+    const flow = createRaceFlow("Cross-origin API", "flow-cross-origin");
+    flow.steps = [createRaceSnapshot(captured, ORIGIN)];
+    flow.raceStepIndex = 0;
+
+    expect(flow.steps[0]?.url).toBe("https://api.example.net/transfer");
     expect(flow.steps[0]?.headers).toEqual([{ name: "x-request-id", value: "123" }]);
     expect(() => validateRaceFlow(flow, ORIGIN, 2)).not.toThrow();
   });
 
-  it("rejects cross-origin, unsupported, and redacted inputs", () => {
-    const crossOrigin = validFlow();
-    crossOrigin.steps[0] = { ...crossOrigin.steps[0]!, url: "https://other.example/transfer" };
-    expect(() => validateRaceFlow(crossOrigin, ORIGIN, 2)).toThrow("match");
+  it("rejects requests from another inspected page, unsupported methods, and redacted inputs", () => {
+    const foreignPage = validFlow();
+    foreignPage.steps[0] = {
+      ...foreignPage.steps[0]!,
+      capturedPageUrl: "https://other.example/account",
+    };
+    expect(() => validateRaceFlow(foreignPage, ORIGIN, 2)).toThrow("inspected page");
     const method = validFlow();
     method.steps[0] = { ...method.steps[0]!, method: "CONNECT" };
     expect(() => validateRaceFlow(method, ORIGIN, 2)).toThrow("unsupported");

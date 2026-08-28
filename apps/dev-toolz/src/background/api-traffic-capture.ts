@@ -33,6 +33,7 @@ type PendingRequest = {
   pageUrl: string;
   capture?: CaptureJourney;
   requestId: string;
+  redactionEnabled: boolean;
   sessionRequestUrl: string;
   resourceType: string;
   startedAt: string;
@@ -46,6 +47,7 @@ const pendingRequests = new Map<string, PendingRequest>();
 const protocolSessions = new Map<string, { url: string; transport: ProtocolTransport }>();
 const capturedTabUrls = new Map<number, string>();
 const capturedTabJourneys = new Map<number, CaptureJourney>();
+const capturedTabRedaction = new Map<number, boolean>();
 let captureOperation: Promise<void> = Promise.resolve();
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -69,6 +71,7 @@ chrome.debugger.onDetach.addListener((source) => {
   }
   capturedTabUrls.delete(source.tabId);
   capturedTabJourneys.delete(source.tabId);
+  capturedTabRedaction.delete(source.tabId);
   void chrome.storage.session.get(ATTACHED_TAB_KEY).then(async (stored) => {
     if (stored[ATTACHED_TAB_KEY] !== source.tabId) return;
     if (journey) await chrome.storage.session.set({ [LAST_CAPTURE_CONTEXT_KEY]: journey });
@@ -79,14 +82,16 @@ chrome.debugger.onDetach.addListener((source) => {
 export function captureTab(
   tabId: number,
   url: string,
+  redactionEnabled = true,
   isCurrent: () => boolean = () => true
 ): Promise<void> {
-  return enqueueCaptureOperation(() => captureTabNow(tabId, url, isCurrent));
+  return enqueueCaptureOperation(() => captureTabNow(tabId, url, redactionEnabled, isCurrent));
 }
 
 async function captureTabNow(
   tabId: number,
   url: string,
+  redactionEnabled: boolean,
   isCurrent: () => boolean
 ): Promise<void> {
   const stored = await chrome.storage.session.get([
@@ -99,6 +104,8 @@ async function captureTabNow(
   const previousTabId = stored[ATTACHED_TAB_KEY];
   const inspectable = isInspectableUrl(url);
   if (typeof previousTabId === "number" && previousTabId === tabId) {
+    capturedTabRedaction.set(tabId, redactionEnabled);
+    capturedTabUrls.set(tabId, redactUrl(url, redactionEnabled));
     if (!inspectable || !isCurrent()) {
       await chrome.debugger.detach({ tabId }).catch(() => undefined);
       await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
@@ -116,7 +123,7 @@ async function captureTabNow(
   if (!inspectable || !isCurrent()) return;
 
   const tab = await chrome.tabs.get(tabId);
-  const pageUrl = redactUrl(url);
+  const pageUrl = redactUrl(url, redactionEnabled);
   const journey = createCaptureJourney(
     {
       tabId,
@@ -134,6 +141,7 @@ async function captureTabNow(
 
   capturedTabUrls.set(tabId, pageUrl);
   capturedTabJourneys.set(tabId, journey);
+  capturedTabRedaction.set(tabId, redactionEnabled);
   await chrome.storage.session.set({
     [ATTACHED_TAB_KEY]: tabId,
     [ATTACHED_CONTEXT_KEY]: journey,
@@ -179,6 +187,7 @@ async function stopApiTrafficCaptureNow(): Promise<void> {
   protocolSessions.clear();
   capturedTabUrls.clear();
   capturedTabJourneys.clear();
+  capturedTabRedaction.clear();
 }
 
 function enqueueCaptureOperation(operation: () => Promise<void>): Promise<void> {
@@ -213,6 +222,7 @@ async function handleDebuggerEvent(
       pageUrl: capturedTabUrls.get(tabId) ?? "",
       capture: capturedTabJourneys.get(tabId),
       requestId,
+      redactionEnabled: capturedTabRedaction.get(tabId) ?? true,
       sessionRequestUrl,
       resourceType: readString(params, "type") ?? "Other",
       startedAt: wallTime ? new Date(wallTime * 1000).toISOString() : new Date().toISOString(),
@@ -220,10 +230,14 @@ async function handleDebuggerEvent(
       initiator: readInitiator(params.initiator),
       request: {
         method: readString(request, "method") ?? "GET",
-        url: redactUrl(sessionRequestUrl),
+        url: redactUrl(sessionRequestUrl, capturedTabRedaction.get(tabId) ?? true),
         mimeType: findHeader(headers, "content-type"),
-        headers: redactHeaders(headers),
-        body: createOptionalBody(readString(request, "postData"), findHeader(headers, "content-type")),
+        headers: redactHeaders(headers, capturedTabRedaction.get(tabId) ?? true),
+        body: createOptionalBody(
+          readString(request, "postData"),
+          findHeader(headers, "content-type"),
+          capturedTabRedaction.get(tabId) ?? true
+        ),
       },
       response: null,
     });
@@ -238,7 +252,7 @@ async function handleDebuggerEvent(
         kind: "created",
         direction: "none",
         timestamp: new Date().toISOString(),
-      });
+      }, capturedTabRedaction.get(tabId) ?? true);
     }
     return;
   }
@@ -252,7 +266,7 @@ async function handleDebuggerEvent(
       status: readNumber(response, "status") ?? 0,
       statusText: readString(response, "statusText") ?? "",
       mimeType: readString(response, "mimeType") ?? "",
-      headers: redactHeaders(toHeaders(asRecord(response.headers))),
+      headers: redactHeaders(toHeaders(asRecord(response.headers)), pending.redactionEnabled),
     };
     return;
   }
@@ -269,7 +283,12 @@ async function handleDebuggerEvent(
     else await refreshRequestBody(pending);
     const body: ApiBody = mediaKind
       ? { kind: "text", raw: MEDIA_BODY_OMITTED }
-      : await getResponseBody(tabId, requestId, pending.response?.mimeType ?? "");
+      : await getResponseBody(
+          tabId,
+          requestId,
+          pending.response?.mimeType ?? "",
+          pending.redactionEnabled
+        );
     const finishedTimestamp = readNumber(params, "timestamp") ?? pending.startedTimestamp;
     const transferSize = readNumber(params, "encodedDataLength");
     await persistExchange(pending, body, finishedTimestamp, transferSize);
@@ -317,7 +336,7 @@ async function captureProtocolEvent(
       kind: "created",
       direction: "none",
       timestamp: new Date().toISOString(),
-    });
+    }, capturedTabRedaction.get(tabId) ?? true);
     return;
   }
 
@@ -355,12 +374,15 @@ async function captureProtocolEvent(
     opcode: readNumber(frame, "opcode"),
     eventName: readString(params, "eventName"),
     payload,
-  });
+  }, capturedTabRedaction.get(tabId) ?? true);
   if (kind === "closed") protocolSessions.delete(key);
 }
 
-async function persistProtocol(event: Parameters<typeof createProtocolEvent>[0]): Promise<void> {
-  const saved = await saveProtocolEvent(createProtocolEvent(event));
+async function persistProtocol(
+  event: Parameters<typeof createProtocolEvent>[0],
+  redactionEnabled: boolean
+): Promise<void> {
+  const saved = await saveProtocolEvent(createProtocolEvent(event, redactionEnabled));
   await chrome.runtime.sendMessage({ type: "PROTOCOL_EVENT_CAPTURED", payload: saved }).catch(() => undefined);
 }
 
@@ -374,7 +396,11 @@ async function refreshRequestBody(pending: PendingRequest): Promise<void> {
     );
     const postData = readString(asRecord(result), "postData");
     if (postData !== undefined) {
-      pending.request.body = createRequestBody(postData, pending.request.mimeType ?? "");
+      pending.request.body = createRequestBody(
+        postData,
+        pending.request.mimeType ?? "",
+        pending.redactionEnabled
+      );
     }
   } catch {
     // Some request types do not expose post data through CDP.
@@ -384,7 +410,8 @@ async function refreshRequestBody(pending: PendingRequest): Promise<void> {
 async function getResponseBody(
   tabId: number,
   requestId: string,
-  mimeType: string
+  mimeType: string,
+  redactionEnabled: boolean
 ): Promise<ApiBody> {
   try {
     const result = await chrome.debugger.sendCommand(
@@ -395,7 +422,7 @@ async function getResponseBody(
     const response = asRecord(result);
     const raw = readString(response, "body") ?? "";
     const decoded = response.base64Encoded === true ? decodeBase64(raw) : raw;
-    return createApiBody(decoded, mimeType);
+    return createApiBody(decoded, mimeType, redactionEnabled);
   } catch {
     return { kind: "text", raw: "Response body unavailable" };
   }
@@ -419,7 +446,7 @@ async function persistExchange(
     pending.request.url
   );
   const saved = await saveApiExchange({
-    pageUrl: redactUrl(pending.pageUrl),
+    pageUrl: redactUrl(pending.pageUrl, pending.redactionEnabled),
     capture: pending.capture,
     resourceType: pending.resourceType,
     transferSize,
@@ -450,8 +477,12 @@ function shouldCapture(pending: PendingRequest): boolean {
   );
 }
 
-function createOptionalBody(raw: string | undefined, mimeType: string | null): ApiBody | null {
-  return raw === undefined ? null : createRequestBody(raw, mimeType ?? "");
+function createOptionalBody(
+  raw: string | undefined,
+  mimeType: string | null,
+  redactionEnabled: boolean
+): ApiBody | null {
+  return raw === undefined ? null : createRequestBody(raw, mimeType ?? "", redactionEnabled);
 }
 
 function toHeaders(rawHeaders: Record<string, unknown>): ApiHeader[] {

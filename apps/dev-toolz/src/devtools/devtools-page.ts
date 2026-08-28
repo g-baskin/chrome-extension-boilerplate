@@ -9,6 +9,7 @@ chrome.devtools.panels.create(
 
 let inspectedPageUrl = "";
 let capturePaused = true;
+let redactionEnabled = true;
 chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
   if (!exceptionInfo && typeof result === "string") {
     inspectedPageUrl = result;
@@ -45,7 +46,7 @@ chrome.devtools.network.onRequestFinished.addListener((entry) => {
     mediaKind !== null;
   if (!isApiRequest) return;
 
-  void saveHarEntry(entry, inspectedPageUrl)
+  void saveHarEntry(entry, inspectedPageUrl, redactionEnabled)
     .then((saved) =>
       chrome.runtime
         .sendMessage({
@@ -70,6 +71,7 @@ async function refreshPauseStatus(): Promise<void> {
     tabId: chrome.devtools.inspectedWindow.tabId,
   });
   if (pageUrl === inspectedPageUrl) {
+    redactionEnabled = response.data?.redactionEnabled ?? true;
     capturePaused =
       !response.success ||
       !response.data?.enabled ||

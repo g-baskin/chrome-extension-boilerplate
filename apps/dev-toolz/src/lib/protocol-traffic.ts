@@ -42,7 +42,8 @@ export type ProtocolFilters = {
 
 export function boundProtocolPayload(
   payload: string | undefined,
-  opcode?: number
+  opcode?: number,
+  redactionEnabled = true
 ): Pick<ProtocolEvent, "payload" | "payloadBytes" | "truncated" | "binary"> {
   if (payload === undefined) {
     return { payloadBytes: 0, truncated: false, binary: opcode === 2 };
@@ -50,11 +51,16 @@ export function boundProtocolPayload(
   const bytes = new TextEncoder().encode(payload);
   const binary = opcode === 2;
   if (bytes.length <= MAX_PROTOCOL_PAYLOAD_BYTES) {
-    return { payload: redactPayload(payload, binary), payloadBytes: bytes.length, truncated: false, binary };
+    return {
+      payload: redactionEnabled ? redactPayload(payload, binary) : payload,
+      payloadBytes: bytes.length,
+      truncated: false,
+      binary,
+    };
   }
   const prefix = new TextDecoder().decode(bytes.slice(0, MAX_PROTOCOL_PAYLOAD_BYTES));
   return {
-    payload: redactPayload(prefix, binary),
+    payload: redactionEnabled ? redactPayload(prefix, binary) : prefix,
     payloadBytes: bytes.length,
     truncated: true,
     binary,
@@ -109,13 +115,14 @@ export function createProtocolEvent(
     url: string;
     pageUrl: string;
     payload?: string;
-  }
+  },
+  redactionEnabled = true
 ): ProtocolEvent {
-  const bounded = boundProtocolPayload(event.payload, event.opcode);
+  const bounded = boundProtocolPayload(event.payload, event.opcode, redactionEnabled);
   return {
     ...event,
-    url: redactUrl(event.url),
-    pageUrl: redactUrl(event.pageUrl),
+    url: redactUrl(event.url, redactionEnabled),
+    pageUrl: redactUrl(event.pageUrl, redactionEnabled),
     ...bounded,
     graphql: bounded.binary ? undefined : (extractGraphqlOperation(bounded.payload) ?? undefined),
   };

@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.7.19] - 2026-08-28
+
+### Added
+
+- Redaction coverage can be disabled explicitly to inspect raw captured URLs, headers, bodies, and protocol payloads.
+
+### Changed
+
+- Race Lab accepts HTTP(S) API requests captured by Recon across origins while retaining capture-integrity checks.
+
 ## [1.7.18] - 2026-08-28
 
 ### Security

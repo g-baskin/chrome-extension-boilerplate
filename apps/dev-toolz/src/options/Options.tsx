@@ -4,12 +4,14 @@ import { normalizeSiteRule, type SiteAccessMode } from "@/lib/site-access";
 
 interface Settings {
   enabled: boolean;
+  redactionEnabled: boolean;
   siteAccessMode: SiteAccessMode;
   siteAccessSites: string[];
 }
 
 const defaultSettings: Settings = {
   enabled: true,
+  redactionEnabled: true,
   siteAccessMode: "all",
   siteAccessSites: [],
 };
@@ -43,6 +45,25 @@ export function Options() {
       setMessage("Settings saved.");
     } else {
       setMessage(response.error ?? "Could not save settings.");
+    }
+    setSaving(false);
+  }
+
+  async function updateRedaction(redactionEnabled: boolean) {
+    if (!settings) return;
+    if (
+      !redactionEnabled &&
+      !confirm("Disable redaction? New captures may store passwords, tokens, cookies, and personal data in plaintext.")
+    ) return;
+    setSaving(true);
+    const response = await sendToBackground("UPDATE_SETTINGS", { redactionEnabled });
+    if (response.success) {
+      setSettings({ ...settings, redactionEnabled });
+      setMessage(redactionEnabled
+        ? "Redaction enabled for new captures."
+        : "Raw capture enabled. New traffic may contain plaintext secrets.");
+    } else {
+      setMessage(response.error ?? "Could not update redaction.");
     }
     setSaving(false);
   }
@@ -129,6 +150,37 @@ export function Options() {
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                     settings.enabled ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+          </section>
+
+          <section className="p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">Redaction coverage</h2>
+                <p className="text-sm text-gray-500">
+                  Mask sensitive URL values, headers, and bodies before local storage.
+                </p>
+                {!settings.redactionEnabled && (
+                  <p className="mt-2 text-sm font-medium text-red-700">
+                    Raw capture is on. New traffic may store plaintext secrets and personal data.
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => void updateRedaction(!settings.redactionEnabled)}
+                disabled={saving}
+                aria-label="Toggle redaction coverage"
+                aria-pressed={settings.redactionEnabled}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  settings.redactionEnabled ? "bg-primary-600" : "bg-red-600"
+                } disabled:opacity-50`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.redactionEnabled ? "translate-x-6" : "translate-x-1"
                   }`}
                 />
               </button>

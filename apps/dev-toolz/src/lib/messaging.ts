@@ -11,6 +11,7 @@ export interface MessageTypes {
     request: void;
     response: {
       enabled: boolean;
+      redactionEnabled: boolean;
       siteAccessMode: "all" | "deny" | "allow";
       siteAccessSites: string[];
     };
@@ -19,6 +20,7 @@ export interface MessageTypes {
   UPDATE_SETTINGS: {
     request: Partial<{
       enabled: boolean;
+      redactionEnabled: boolean;
       siteAccessMode: "all" | "deny" | "allow";
       siteAccessSites: string[];
     }>;
@@ -34,6 +36,7 @@ export interface MessageTypes {
     request: { tabId: number };
     response: {
       enabled: boolean;
+      redactionEnabled: boolean;
       hostname: string;
       paused: boolean;
       pausedUntil: number | null;

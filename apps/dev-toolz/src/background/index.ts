@@ -32,6 +32,9 @@ createMessageHandler({
     ) {
       throw new Error("Unsupported site access mode");
     }
+    if (payload.redactionEnabled !== undefined && typeof payload.redactionEnabled !== "boolean") {
+      throw new Error("Redaction setting must be a boolean");
+    }
     const siteAccessSites = payload.siteAccessSites?.map((value) => {
       const site = normalizeSiteRule(value);
       if (!site) throw new Error("Invalid site access rule");
@@ -41,6 +44,7 @@ createMessageHandler({
     const currentSettings = { ...defaultSettings, ...(await getStorage("settings")) };
     const newSettings = {
       enabled: payload.enabled ?? currentSettings.enabled,
+      redactionEnabled: payload.redactionEnabled ?? currentSettings.redactionEnabled,
       siteAccessMode: payload.siteAccessMode ?? currentSettings.siteAccessMode,
       siteAccessSites: siteAccessSites
         ? [...new Set(siteAccessSites)].sort()
@@ -56,6 +60,7 @@ createMessageHandler({
     if (
       !(await setStorage("settings", {
         enabled: payload.enabled,
+        redactionEnabled: currentSettings.redactionEnabled,
         siteAccessMode: currentSettings.siteAccessMode,
         siteAccessSites: currentSettings.siteAccessSites,
       }))
@@ -87,6 +92,7 @@ createMessageHandler({
     const pageUrl = tab.url ?? "";
     return {
       enabled: settings.enabled,
+      redactionEnabled: settings.redactionEnabled,
       ...(await getApiTrafficPauseStatus(pageUrl)),
       allowed: isSiteAllowed(pageUrl, {
         mode: settings.siteAccessMode,
@@ -231,7 +237,12 @@ async function syncApiTrafficCapture(expectedTabId?: number): Promise<void> {
   ) {
     return;
   }
-  await captureTab(tab.id, url, isCurrent).catch(() => undefined);
+  await captureTab(
+    tab.id,
+    url,
+    settings?.redactionEnabled ?? defaultSettings.redactionEnabled,
+    isCurrent
+  ).catch(() => undefined);
 }
 
 function isInspectableUrl(url: string): boolean {

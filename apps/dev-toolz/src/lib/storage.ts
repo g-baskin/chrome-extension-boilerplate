@@ -3,6 +3,7 @@ import type { SiteAccessMode } from "@/lib/site-access";
 export interface StorageSchema {
   settings: {
     enabled: boolean;
+    redactionEnabled: boolean;
     siteAccessMode: SiteAccessMode;
     siteAccessSites: string[];
   };
@@ -46,6 +47,7 @@ export async function setStorage<TKey extends StorageKey>(
 
 export const defaultSettings: StorageSchema["settings"] = {
   enabled: true,
+  redactionEnabled: true,
   siteAccessMode: "all",
   siteAccessSites: [],
 };
@@ -58,6 +60,9 @@ export async function initializeStorage(): Promise<void> {
   const siteAccessMode = settings?.siteAccessMode;
   const normalizedSettings: StorageSchema["settings"] = {
     enabled: typeof settings?.enabled === "boolean" ? settings.enabled : defaultSettings.enabled,
+    redactionEnabled: typeof settings?.redactionEnabled === "boolean"
+      ? settings.redactionEnabled
+      : defaultSettings.redactionEnabled,
     siteAccessMode:
       siteAccessMode === "allow" || siteAccessMode === "deny" ? siteAccessMode : "all",
     siteAccessSites: Array.isArray(settings?.siteAccessSites)

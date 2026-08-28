@@ -170,9 +170,14 @@ export function getMediaRole(mediaKind: MediaKind | null): MediaRole | null {
   return mediaKind ? "stream" : null;
 }
 
-export function createApiBody(raw: string, mimeType: string): ApiBody {
+export function createApiBody(
+  raw: string,
+  mimeType: string,
+  redactionEnabled = true
+): ApiBody {
   try {
-    return { kind: "json", value: redactJson(JSON.parse(raw) as unknown) };
+    const value = JSON.parse(raw) as unknown;
+    return { kind: "json", value: redactionEnabled ? redactJson(value) : value };
   } catch (error: unknown) {
     return mimeType.toLowerCase().includes("json")
       ? {
@@ -184,35 +189,46 @@ export function createApiBody(raw: string, mimeType: string): ApiBody {
   }
 }
 
-export function createRequestBody(raw: string, mimeType: string): ApiBody {
+export function createRequestBody(
+  raw: string,
+  mimeType: string,
+  redactionEnabled = true
+): ApiBody {
   const normalizedMimeType = mimeType.toLowerCase();
   if (normalizedMimeType.includes("application/x-www-form-urlencoded")) {
-    return createFormBody(Array.from(new URLSearchParams(raw).entries()));
+    return createFormBody(Array.from(new URLSearchParams(raw).entries()), redactionEnabled);
   }
   if (normalizedMimeType.includes("multipart/form-data")) {
-    return { kind: "text", raw: "<multipart body omitted to protect uploaded files and secrets>" };
+    return redactionEnabled
+      ? { kind: "text", raw: "<multipart body omitted to protect uploaded files and secrets>" }
+      : { kind: "text", raw };
   }
-  return createApiBody(raw, mimeType);
+  return createApiBody(raw, mimeType, redactionEnabled);
 }
 
-export function createFormBody(params: Array<[string, string]>): ApiBody {
+export function createFormBody(
+  params: Array<[string, string]>,
+  redactionEnabled = true
+): ApiBody {
   return {
     kind: "json",
     value: params.map(([name, value]) => ({
       name,
-      value: SENSITIVE_NAME_REGEX.test(name) ? REDACTED : value,
+      value: redactionEnabled && SENSITIVE_NAME_REGEX.test(name) ? REDACTED : value,
     })),
   };
 }
 
-export function redactHeaders(headers: ApiHeader[]): ApiHeader[] {
+export function redactHeaders(headers: ApiHeader[], redactionEnabled = true): ApiHeader[] {
+  if (!redactionEnabled) return headers.map(({ name, value }) => ({ name, value }));
   return headers.map(({ name, value }) => ({
     name,
     value: SENSITIVE_NAME_REGEX.test(name) ? REDACTED : value,
   }));
 }
 
-export function redactUrl(rawUrl: string): string {
+export function redactUrl(rawUrl: string, redactionEnabled = true): string {
+  if (!redactionEnabled) return rawUrl;
   try {
     const url = new URL(rawUrl);
     for (const name of url.searchParams.keys()) {
@@ -567,7 +583,8 @@ function normalizeHarTiming(value: number | undefined): number | undefined {
 
 export function saveHarEntry(
   entry: chrome.devtools.network.Request,
-  pageUrl: string
+  pageUrl: string,
+  redactionEnabled = true
 ): Promise<ApiExchange> {
   const mimeType = entry.response.content.mimeType;
   const resourceType =
@@ -588,7 +605,7 @@ export function saveHarEntry(
       const postData = entry.request.postData;
       let requestBody: ApiBody | null = null;
       if (!mediaKind && postData && "text" in postData && typeof postData.text === "string") {
-        requestBody = createRequestBody(postData.text, postData.mimeType);
+        requestBody = createRequestBody(postData.text, postData.mimeType, redactionEnabled);
       } else if (
         !mediaKind &&
         postData &&
@@ -596,11 +613,12 @@ export function saveHarEntry(
         Array.isArray(postData.params)
       ) {
         requestBody = createFormBody(
-          postData.params.map((param) => [param.name, param.value ?? ""])
+          postData.params.map((param) => [param.name, param.value ?? ""]),
+          redactionEnabled
         );
       }
       const exchange: ApiExchange = {
-        pageUrl: redactUrl(pageUrl),
+        pageUrl: redactUrl(pageUrl, redactionEnabled),
         resourceType,
         transferSize,
         network: {
@@ -621,19 +639,19 @@ export function saveHarEntry(
         durationMs: entry.time,
         request: {
           method: entry.request.method,
-          url: redactUrl(entry.request.url),
+          url: redactUrl(entry.request.url, redactionEnabled),
           mimeType: postData?.mimeType ?? null,
-          headers: redactHeaders(entry.request.headers),
+          headers: redactHeaders(entry.request.headers, redactionEnabled),
           body: requestBody,
         },
         response: {
           status: entry.response.status,
           statusText: entry.response.statusText,
           mimeType,
-          headers: redactHeaders(entry.response.headers),
+          headers: redactHeaders(entry.response.headers, redactionEnabled),
           body: mediaKind
             ? { kind: "text", raw: MEDIA_BODY_OMITTED }
-            : createApiBody(decodeContent(content, encoding), mimeType),
+            : createApiBody(decodeContent(content, encoding), mimeType, redactionEnabled),
         },
       };
       void saveApiExchange(exchange).then(resolve, reject);

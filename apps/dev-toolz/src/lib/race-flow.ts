@@ -35,8 +35,8 @@ export function createRaceFlow(name: string, id: string = crypto.randomUUID()): 
 
 export function createRaceSnapshot(exchange: ApiExchange, currentOrigin: string): RaceRequestSnapshot {
   if (!Number.isInteger(exchange.sequence) || (exchange.sequence ?? 0) <= 0) throw new Error("Captured request is missing its storage ID.");
-  const url = parseSameOriginUrl(exchange.request.url, currentOrigin);
-  const capturedPageUrl = parseSameOriginUrl(exchange.pageUrl ?? "", currentOrigin).href;
+  const url = parseReplayUrl(exchange.request.url);
+  const capturedPageUrl = parseInspectedPageUrl(exchange.pageUrl ?? "", currentOrigin).href;
   if (!ALLOWED_METHODS.has(exchange.request.method.toUpperCase())) throw new Error("This request method cannot be replayed.");
   if (decodeURIComponentSafe(url.href).includes(REDACTED)) throw new Error("Requests with redacted URL values cannot be replayed.");
   const body = serializeBody(exchange);
@@ -77,8 +77,8 @@ export function validateRaceFlow(flow: RaceFlow, currentOrigin: string, concurre
   for (const step of flow.steps) {
     if (!Number.isInteger(step.exchangeSequence) || step.exchangeSequence <= 0) throw new Error("Every step must reference a captured request.");
     if (!ALLOWED_METHODS.has(step.method)) throw new Error("A step uses an unsupported method.");
-    const url = parseSameOriginUrl(step.url, currentOrigin);
-    parseSameOriginUrl(step.capturedPageUrl, currentOrigin);
+    const url = parseReplayUrl(step.url);
+    parseInspectedPageUrl(step.capturedPageUrl, currentOrigin);
     if (decodeURIComponentSafe(url.href).includes(REDACTED)) throw new Error("Redacted URL values cannot be replayed.");
     for (const header of step.headers) {
       if (!header || typeof header.name !== "string" || typeof header.value !== "string") throw new Error("A request header is malformed.");
@@ -97,11 +97,19 @@ export function validateRaceFlow(flow: RaceFlow, currentOrigin: string, concurre
   if (totalBodyBytes > MAX_RACE_TOTAL_BODY_BYTES) throw new Error("Flow bodies exceed the 1 MiB total limit.");
 }
 
-function parseSameOriginUrl(rawUrl: string, currentOrigin: string): URL {
+function parseReplayUrl(rawUrl: string): URL {
   let url: URL;
   try { url = new URL(rawUrl); } catch { throw new Error("Race requests require valid URLs."); }
-  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.origin !== currentOrigin) {
-    throw new Error("Race requests must match the inspected page origin.");
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Race requests require HTTP(S) URLs.");
+  }
+  return url;
+}
+
+function parseInspectedPageUrl(rawUrl: string, currentOrigin: string): URL {
+  const url = parseReplayUrl(rawUrl);
+  if (url.origin !== currentOrigin) {
+    throw new Error("Race steps must come from the inspected page.");
   }
   return url;
 }
