@@ -1,74 +1,38 @@
-/**
- * Type-safe Chrome storage utilities
- * Supports both local and sync storage with automatic serialization
- *
- * EXTENDING STORAGE:
- * 1. Add new keys to StorageSchema interface
- * 2. Add default values to defaultStorage object
- * 3. Use getStorage/setStorage with your new keys (fully type-safe)
- *
- * Example:
- *   interface StorageSchema {
- *     myFeature: { enabled: boolean; count: number };
- *   }
- *   const data = await getStorage("myFeature"); // typed!
- */
-
-import { CapturedPageEntry, CAPTURE_HISTORY_LIMIT } from "@/lib/capture";
 import type { SiteAccessMode } from "@/lib/site-access";
 
 export interface StorageSchema {
-  // Extension settings - add your settings here
   settings: {
     enabled: boolean;
-    theme: "light" | "dark" | "system";
-    notifications: boolean;
     siteAccessMode: SiteAccessMode;
     siteAccessSites: string[];
   };
-  // User data - add user-specific data here
-  userData: {
-    lastVisit: number;
-    visitCount: number;
-  };
-  // Captured Skool pages stored for later downloads
-  captureHistory: CapturedPageEntry[];
-  // Hostnames excluded from API capture; null means paused until resumed.
   apiTrafficPauses: Record<string, number | null>;
 }
 
 type StorageKey = keyof StorageSchema;
 type StorageValue<K extends StorageKey> = StorageSchema[K];
 
-/**
- * Get a value from chrome.storage.local
- * Returns undefined if key doesn't exist or on error
- */
-export async function getStorage<K extends StorageKey>(
-  key: K
-): Promise<StorageValue<K> | undefined> {
+export async function getStorage<TKey extends StorageKey>(
+  storageKey: TKey
+): Promise<StorageValue<TKey> | undefined> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(key, (result) => {
+    chrome.storage.local.get(storageKey, (result) => {
       if (chrome.runtime.lastError) {
         console.error("[Storage] Get error:", chrome.runtime.lastError.message);
         resolve(undefined);
         return;
       }
-      resolve(result[key] as StorageValue<K> | undefined);
+      resolve(result[storageKey] as StorageValue<TKey> | undefined);
     });
   });
 }
 
-/**
- * Set a value in chrome.storage.local
- * Returns true on success, false on error
- */
-export async function setStorage<K extends StorageKey>(
-  key: K,
-  value: StorageValue<K>
+export async function setStorage<TKey extends StorageKey>(
+  storageKey: TKey,
+  value: StorageValue<TKey>
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [key]: value }, () => {
+    chrome.storage.local.set({ [storageKey]: value }, () => {
       if (chrome.runtime.lastError) {
         console.error("[Storage] Set error:", chrome.runtime.lastError.message);
         resolve(false);
@@ -79,147 +43,31 @@ export async function setStorage<K extends StorageKey>(
   });
 }
 
-/**
- * Append a new capture entry to history (limited to CAPTURE_HISTORY_LIMIT)
- */
-export async function appendCaptureEntry(
-  entry: CapturedPageEntry
-): Promise<boolean> {
-  const history = (await getStorage("captureHistory")) ?? [];
-  const entries = [entry, ...history].slice(0, CAPTURE_HISTORY_LIMIT);
-  return setStorage("captureHistory", entries);
-}
-
-export async function getCaptureHistory(): Promise<CapturedPageEntry[]> {
-  return (await getStorage("captureHistory")) ?? [];
-}
-
-export async function getCaptureEntryById(
-  id: string
-): Promise<CapturedPageEntry | undefined> {
-  const history = await getCaptureHistory();
-  return history.find((entry) => entry.id === id);
-}
-
-/**
- * Remove a capture entry by ID
- */
-export async function deleteCaptureEntry(id: string): Promise<boolean> {
-  const history = (await getStorage("captureHistory")) ?? [];
-  const entries = history.filter((entry) => entry.id !== id);
-  return setStorage("captureHistory", entries);
-}
-
-/**
- * Remove a value from chrome.storage.local
- */
-export async function removeStorage<K extends StorageKey>(
-  key: K
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.storage.local.remove(key, () => {
-      if (chrome.runtime.lastError) {
-        console.error("[Storage] Remove error:", chrome.runtime.lastError.message);
-        resolve(false);
-        return;
-      }
-      resolve(true);
-    });
-  });
-}
-
-/**
- * Get all storage data
- */
-export async function getAllStorage(): Promise<Partial<StorageSchema>> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(null, (result) => {
-      if (chrome.runtime.lastError) {
-        console.error("[Storage] GetAll error:", chrome.runtime.lastError.message);
-        resolve({});
-        return;
-      }
-      resolve(result as Partial<StorageSchema>);
-    });
-  });
-}
-
-/**
- * Clear all storage data
- */
-export async function clearStorage(): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.storage.local.clear(() => {
-      if (chrome.runtime.lastError) {
-        console.error("[Storage] Clear error:", chrome.runtime.lastError.message);
-        resolve(false);
-        return;
-      }
-      resolve(true);
-    });
-  });
-}
-
-/**
- * Listen for storage changes
- * Returns unsubscribe function
- */
-export function onStorageChange(
-  callback: (
-    changes: { [key: string]: chrome.storage.StorageChange },
-    areaName: string
-  ) => void
-): () => void {
-  chrome.storage.onChanged.addListener(callback);
-  return () => chrome.storage.onChanged.removeListener(callback);
-}
-
-/**
- * Default settings - customize these for your extension
- */
 export const defaultSettings: StorageSchema["settings"] = {
   enabled: true,
-  theme: "system",
-  notifications: true,
   siteAccessMode: "all",
   siteAccessSites: [],
 };
 
-/**
- * Default user data
- */
-export const defaultUserData: StorageSchema["userData"] = {
-  lastVisit: Date.now(),
-  visitCount: 0,
-};
+const defaultApiTrafficPauses: StorageSchema["apiTrafficPauses"] = {};
 
-export const defaultCaptureHistory: StorageSchema["captureHistory"] = [];
-export const defaultApiTrafficPauses: StorageSchema["apiTrafficPauses"] = {};
-
-/**
- * Initialize storage with default values if not set
- * Call this in background script on install
- */
 export async function initializeStorage(): Promise<void> {
   const settings = await getStorage("settings");
-  if (!settings) {
-    await setStorage("settings", defaultSettings);
-  } else if (settings.siteAccessMode === undefined || settings.siteAccessSites === undefined) {
-    await setStorage("settings", { ...defaultSettings, ...settings });
-  }
-
-  const userData = await getStorage("userData");
-  if (!userData) {
-    await setStorage("userData", defaultUserData);
-  }
-
-  const captureHistory = await getStorage("captureHistory");
-  if (!captureHistory) {
-    await setStorage("captureHistory", defaultCaptureHistory);
+  const siteAccessMode = settings?.siteAccessMode;
+  const normalizedSettings: StorageSchema["settings"] = {
+    enabled: typeof settings?.enabled === "boolean" ? settings.enabled : defaultSettings.enabled,
+    siteAccessMode:
+      siteAccessMode === "allow" || siteAccessMode === "deny" ? siteAccessMode : "all",
+    siteAccessSites: Array.isArray(settings?.siteAccessSites)
+      ? settings.siteAccessSites.filter((site): site is string => typeof site === "string")
+      : [],
+  };
+  if (!(await setStorage("settings", normalizedSettings))) {
+    throw new Error("Could not initialize capture settings");
   }
 
   const apiTrafficPauses = await getStorage("apiTrafficPauses");
-  if (!apiTrafficPauses) {
-    await setStorage("apiTrafficPauses", defaultApiTrafficPauses);
+  if (!apiTrafficPauses && !(await setStorage("apiTrafficPauses", defaultApiTrafficPauses))) {
+    throw new Error("Could not initialize capture pauses");
   }
 }

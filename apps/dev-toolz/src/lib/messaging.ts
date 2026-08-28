@@ -1,41 +1,4 @@
-import type {
-  CaptureRequest,
-  CaptureResponse,
-  CapturedPageEntry,
-  CapturedPageSummary,
-} from "@/lib/capture";
-
 export interface MessageTypes {
-  GET_TAB_INFO: {
-    request: void;
-    response: { url: string; title: string };
-  };
-
-  CAPTURE_SKILL_PAGE: {
-    request: CaptureRequest;
-    response: CaptureResponse;
-  };
-
-  SAVE_CAPTURE: {
-    request: { entry: CapturedPageEntry };
-    response: { success: boolean };
-  };
-
-  GET_CAPTURE_HISTORY: {
-    request: void;
-    response: { entries: CapturedPageSummary[] };
-  };
-
-  GET_CAPTURE_ENTRY: {
-    request: { id: string };
-    response: { entry?: CapturedPageEntry };
-  };
-
-  DELETE_CAPTURE: {
-    request: { id: string };
-    response: { success: boolean };
-  };
-
   TOGGLE_EXTENSION: {
     request: { enabled: boolean };
     response: { success: boolean };
@@ -45,8 +8,6 @@ export interface MessageTypes {
     request: void;
     response: {
       enabled: boolean;
-      theme: "light" | "dark" | "system";
-      notifications: boolean;
       siteAccessMode: "all" | "deny" | "allow";
       siteAccessSites: string[];
     };
@@ -55,17 +16,10 @@ export interface MessageTypes {
   UPDATE_SETTINGS: {
     request: Partial<{
       enabled: boolean;
-      theme: "light" | "dark" | "system";
-      notifications: boolean;
       siteAccessMode: "all" | "deny" | "allow";
       siteAccessSites: string[];
     }>;
     response: { success: boolean };
-  };
-
-  CONTENT_ACTION: {
-    request: { action: string; data?: unknown };
-    response: { success: boolean; result?: unknown };
   };
 
   DEVTOOLS_CLOSED: {
@@ -76,6 +30,7 @@ export interface MessageTypes {
   GET_API_CAPTURE_STATUS: {
     request: { tabId: number };
     response: {
+      enabled: boolean;
       hostname: string;
       paused: boolean;
       pausedUntil: number | null;
@@ -129,43 +84,6 @@ export async function sendToBackground<T extends MessageType>(
   }
 }
 
-export async function sendToTab<T extends MessageType>(
-  tabId: number,
-  type: T,
-  payload: MessageTypes[T]["request"]
-): Promise<MessageResponse<T>> {
-  try {
-    const response = await chrome.tabs.sendMessage<Message<T>, MessageResponse<T>>(tabId, {
-      type,
-      payload,
-    });
-
-    if (response === undefined) {
-      return {
-        success: false,
-        error: "No response from content script (may not be loaded)",
-      };
-    }
-
-    return response;
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-export async function sendToActiveTab<T extends MessageType>(
-  type: T,
-  payload: MessageTypes[T]["request"]
-): Promise<MessageResponse<T>> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    return { success: false, error: "No active tab found" };
-  }
-  return sendToTab(tab.id, type, payload);
-}
 
 export function createMessageHandler(
   handlers: Partial<{

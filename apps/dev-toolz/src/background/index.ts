@@ -1,73 +1,24 @@
-/**
- * Background Service Worker
- * Handles extension lifecycle, messaging, and background tasks
- */
-
 import { createMessageHandler } from "@/lib/messaging";
-import {
-  appendCaptureEntry,
-  deleteCaptureEntry,
-  getCaptureEntryById,
-  getCaptureHistory,
-  getStorage,
-  initializeStorage,
-  setStorage,
-  defaultSettings,
-} from "@/lib/storage";
-import type { CapturedPageSummary } from "@/lib/capture";
+import { defaultSettings, getStorage, initializeStorage, setStorage } from "@/lib/storage";
 import { isSiteAllowed, normalizeSiteRule } from "@/lib/site-access";
-import {
-  getApiTrafficPauseStatus,
-  setApiTrafficPause,
-} from "@/lib/api-traffic-pause";
+import { getApiTrafficPauseStatus, setApiTrafficPause } from "@/lib/api-traffic-pause";
 import { captureTab, stopApiTrafficCapture } from "./api-traffic-capture";
 
 const API_TRAFFIC_ALARM_PREFIX = "api-traffic-resume:";
 const tabStatusRevisions = new Map<number, number>();
 let apiTrafficCaptureRevision = 0;
 
-console.log("[Background] Service worker started");
-
-// Handle extension installation
-chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log("[Background] Extension installed:", details.reason);
+chrome.runtime.onInstalled.addListener(async () => {
   await initializeStorage();
-
-  if (details.reason === chrome.runtime.OnInstalledReason.INSTALL) {
-    // First-time installation
-    console.log("[Background] Storage initialized with defaults");
-
-    // Optional: Open welcome/onboarding page
-    // chrome.tabs.create({ url: chrome.runtime.getURL("src/options/options.html") });
-  }
-
-  if (details.reason === chrome.runtime.OnInstalledReason.UPDATE) {
-    // Extension updated
-    console.log(
-      "[Background] Extension updated from version:",
-      details.previousVersion
-    );
-  }
   await syncApiTrafficCapture();
 });
 
-// Handle extension startup (browser restart, etc.)
 chrome.runtime.onStartup.addListener(async () => {
-  console.log("[Background] Extension started");
   await initializeStorage();
   await syncApiTrafficCapture();
 });
 
-// Set up message handlers
 createMessageHandler({
-  GET_TAB_INFO: async (_payload, sender) => {
-    const tab = sender.tab;
-    return {
-      url: tab?.url ?? "",
-      title: tab?.title ?? "",
-    };
-  },
-
   GET_SETTINGS: async () => {
     const settings = await getStorage("settings");
     return { ...defaultSettings, ...settings };
@@ -88,43 +39,30 @@ createMessageHandler({
 
     const currentSettings = { ...defaultSettings, ...(await getStorage("settings")) };
     const newSettings = {
-      ...currentSettings,
-      ...payload,
-      ...(siteAccessSites
-        ? { siteAccessSites: [...new Set(siteAccessSites)].sort() }
-        : {}),
+      enabled: payload.enabled ?? currentSettings.enabled,
+      siteAccessMode: payload.siteAccessMode ?? currentSettings.siteAccessMode,
+      siteAccessSites: siteAccessSites
+        ? [...new Set(siteAccessSites)].sort()
+        : currentSettings.siteAccessSites,
     };
-    await setStorage("settings", newSettings);
-    if (
-      payload.enabled !== undefined ||
-      payload.siteAccessMode !== undefined ||
-      payload.siteAccessSites !== undefined
-    ) {
-      await syncApiTrafficCapture();
-    }
+    if (!(await setStorage("settings", newSettings))) throw new Error("Could not save settings");
+    await syncApiTrafficCapture();
     return { success: true };
   },
 
   TOGGLE_EXTENSION: async (payload) => {
-    const currentSettings = (await getStorage("settings")) ?? defaultSettings;
-    await setStorage("settings", { ...currentSettings, enabled: payload.enabled });
+    const currentSettings = { ...defaultSettings, ...(await getStorage("settings")) };
+    if (
+      !(await setStorage("settings", {
+        enabled: payload.enabled,
+        siteAccessMode: currentSettings.siteAccessMode,
+        siteAccessSites: currentSettings.siteAccessSites,
+      }))
+    ) {
+      throw new Error("Could not save capture setting");
+    }
     if (payload.enabled) await syncApiTrafficCapture();
     else await stopSynchronizedApiTrafficCapture();
-
-    // Notify all tabs about the state change
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (tab.id) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: "EXTENSION_STATE_CHANGED",
-            payload: { enabled: payload.enabled },
-          });
-        } catch {
-          // Tab might not have content script loaded
-        }
-      }
-    }
 
     return { success: true };
   },
@@ -147,6 +85,7 @@ createMessageHandler({
     const settings = { ...defaultSettings, ...storedSettings };
     const pageUrl = tab.url ?? "";
     return {
+      enabled: settings.enabled,
       ...(await getApiTrafficPauseStatus(pageUrl)),
       allowed: isSiteAllowed(pageUrl, {
         mode: settings.siteAccessMode,
@@ -179,57 +118,8 @@ createMessageHandler({
     return status;
   },
 
-  CONTENT_ACTION: async (payload) => {
-    console.log("[Background] Content action received:", payload);
-    return { success: true, result: payload.data };
-  },
-
-  SAVE_CAPTURE: async ({ entry }) => {
-    const success = await appendCaptureEntry(entry);
-    return { success };
-  },
-
-  GET_CAPTURE_HISTORY: async () => {
-    const history = await getCaptureHistory();
-    const entries: CapturedPageSummary[] = history.map(
-      ({ id, markdown: _markdown, html: _html, ...metadata }) => ({
-        id,
-        ...metadata,
-      })
-    );
-
-    return { entries };
-  },
-
-  GET_CAPTURE_ENTRY: async ({ id }) => {
-    const entry = await getCaptureEntryById(id);
-    return { entry };
-  },
-
-  DELETE_CAPTURE: async ({ id }) => {
-    const success = await deleteCaptureEntry(id);
-    return { success };
-  },
 });
 
-// Context menu setup
-chrome.runtime.onInstalled.addListener(() => {
-  // Remove existing menus first (best practice)
-  chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
-      id: "extension-action",
-      title: "Extension Action",
-      contexts: ["page", "selection"],
-    });
-  });
-});
-
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "extension-action") {
-    console.log("[Background] Context menu clicked:", info, tab);
-    // Handle context menu action
-  }
-});
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   void chrome.tabs
@@ -334,14 +224,3 @@ async function syncApiTrafficCapture(expectedTabId?: number): Promise<void> {
 function isInspectableUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
 }
-
-// Keep service worker alive for long-running tasks (use sparingly)
-// chrome.alarms.create("keepAlive", { periodInMinutes: 0.5 });
-// chrome.alarms.onAlarm.addListener((alarm) => {
-//   if (alarm.name === "keepAlive") {
-//     console.log("[Background] Keep alive alarm");
-//   }
-// });
-
-// Export for type checking
-export {};

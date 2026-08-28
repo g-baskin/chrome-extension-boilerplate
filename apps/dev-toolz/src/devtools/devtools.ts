@@ -360,24 +360,30 @@ async function updateCapturePause(): Promise<void> {
 }
 
 function renderCaptureStatus(
-  status: ApiTrafficPauseStatus & { allowed: boolean; siteAccessMode: SiteAccessMode }
+  status: ApiTrafficPauseStatus & {
+    enabled: boolean;
+    allowed: boolean;
+    siteAccessMode: SiteAccessMode;
+  }
 ): void {
-  const statusText = status.hostname
-    ? !status.allowed
-      ? status.siteAccessMode === "allow"
-        ? `Not on allow list: ${status.hostname}`
-        : `Blocked: ${status.hostname}`
-      : status.paused
-      ? status.pausedUntil === null
-        ? `Paused: ${status.hostname}`
-        : `Paused until ${new Date(status.pausedUntil).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          })}`
-      : `Capturing: ${status.hostname}`
-    : "No website selected";
+  const statusText = !status.enabled
+    ? "Capture disabled"
+    : status.hostname
+      ? !status.allowed
+        ? status.siteAccessMode === "allow"
+          ? `Not on allow list: ${status.hostname}`
+          : `Blocked: ${status.hostname}`
+        : status.paused
+          ? status.pausedUntil === null
+            ? `Paused: ${status.hostname}`
+            : `Paused until ${new Date(status.pausedUntil).toLocaleTimeString([], {
+                hour: "numeric",
+                minute: "2-digit",
+              })}`
+          : `Capturing: ${status.hostname}`
+      : "No website selected";
   const options = [createOption("", statusText)];
-  if (!status.allowed) {
+  if (!status.enabled || !status.allowed) {
     captureSite.replaceChildren(...options);
     captureSite.disabled = true;
     return;

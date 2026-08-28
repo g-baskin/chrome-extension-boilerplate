@@ -1,6 +1,5 @@
 import { detectMediaKind, saveHarEntry } from "../lib/api-traffic";
 import { sendToBackground } from "../lib/messaging";
-
 let inspectedPageUrl = "";
 let capturePaused = true;
 chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
@@ -64,7 +63,11 @@ async function refreshPauseStatus(): Promise<void> {
     tabId: chrome.devtools.inspectedWindow.tabId,
   });
   if (pageUrl === inspectedPageUrl) {
-    capturePaused = !response.success || !response.data?.allowed || response.data.paused;
+    capturePaused =
+      !response.success ||
+      !response.data?.enabled ||
+      !response.data.allowed ||
+      response.data.paused;
   }
 }
 
