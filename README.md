@@ -88,4 +88,6 @@ Build the target extension, publish its changelog entry, zip its `dist` director
 
 ## License
 
-MIT
+Copyright © 2026 [Greg Baskin](https://backroomsoftware.com).
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE).

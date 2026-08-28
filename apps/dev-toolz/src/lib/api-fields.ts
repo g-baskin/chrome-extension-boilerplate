@@ -51,6 +51,22 @@ export function extractApiFields(exchange: ApiExchange): ApiField[] {
   add("duration_ms", exchange.durationMs, "metadata");
   const pageHost = parseHost(exchange.pageUrl);
   if (pageHost) add("page.host", pageHost, "metadata");
+  if (exchange.capture) {
+    add("capture.tab_id", exchange.capture.tabId, "metadata");
+    add("capture.window_id", exchange.capture.windowId, "metadata");
+    if (exchange.capture.openerTabId !== undefined) {
+      add("capture.opener_tab_id", exchange.capture.openerTabId, "metadata");
+    }
+    add("capture.attached_at", exchange.capture.attachedAt, "metadata");
+    add("capture.transition", exchange.capture.transition, "metadata");
+    const previousHost = parseHost(exchange.capture.previousPageUrl);
+    if (previousHost) add("capture.previous_page_host", previousHost, "metadata");
+    add(
+      "capture.initial_requests_may_be_missing",
+      exchange.capture.mayHaveMissedInitialRequests,
+      "metadata"
+    );
+  }
   add("initiator.kind", exchange.initiator?.kind ?? "unknown", "metadata");
 
   if (exchange.request.url.length <= API_FIELD_LIMITS.inputCharacters) {

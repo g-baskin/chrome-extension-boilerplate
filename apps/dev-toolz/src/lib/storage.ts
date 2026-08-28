@@ -7,6 +7,7 @@ export interface StorageSchema {
     siteAccessSites: string[];
   };
   apiTrafficPauses: Record<string, number | null>;
+  starredLogEvents: string[];
 }
 
 type StorageKey = keyof StorageSchema;
@@ -50,6 +51,7 @@ export const defaultSettings: StorageSchema["settings"] = {
 };
 
 const defaultApiTrafficPauses: StorageSchema["apiTrafficPauses"] = {};
+const MAX_STARRED_LOG_EVENTS = 1_000;
 
 export async function initializeStorage(): Promise<void> {
   const settings = await getStorage("settings");
@@ -69,5 +71,15 @@ export async function initializeStorage(): Promise<void> {
   const apiTrafficPauses = await getStorage("apiTrafficPauses");
   if (!apiTrafficPauses && !(await setStorage("apiTrafficPauses", defaultApiTrafficPauses))) {
     throw new Error("Could not initialize capture pauses");
+  }
+
+  const starredLogEvents = await getStorage("starredLogEvents");
+  const normalizedStarredLogEvents = Array.isArray(starredLogEvents)
+    ? starredLogEvents
+        .filter((id): id is string => typeof id === "string" && id.length <= 1_000)
+        .slice(0, MAX_STARRED_LOG_EVENTS)
+    : [];
+  if (!(await setStorage("starredLogEvents", normalizedStarredLogEvents))) {
+    throw new Error("Could not initialize starred log events");
   }
 }

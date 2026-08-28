@@ -3,6 +3,8 @@ import {
   openTrafficDatabase,
   PROTOCOL_EVENTS_STORE,
 } from "./traffic-database";
+import { enforceTrafficRetention } from "./traffic-retention";
+import type { CaptureJourney } from "./capture-journey";
 
 export type ApiHeader = { name: string; value: string };
 export type MediaKind =
@@ -18,6 +20,17 @@ export type ApiBody =
   | { kind: "malformed-json"; raw: string; error: string }
   | { kind: "text"; raw: string };
 
+export type ApiNetworkInfo = {
+  protocol: string;
+  connectionId?: string;
+  connectionSetup: "observed" | "reused-or-unavailable";
+  dnsMs?: number;
+  connectMs?: number;
+  tlsMs?: number;
+  sendMs?: number;
+  waitMs?: number;
+  receiveMs?: number;
+};
 export type ApiTrafficFilters = {
   pageHostname: string | null;
   analysis:
@@ -49,8 +62,10 @@ export type ApiTrafficFilters = {
 export type ApiExchange = {
   sequence?: number;
   pageUrl?: string;
+  capture?: CaptureJourney;
   resourceType?: string;
   transferSize?: number;
+  network?: ApiNetworkInfo;
   startedAt: string;
   durationMs: number;
   initiator?: {
@@ -224,7 +239,7 @@ export function redactJson(value: unknown): unknown {
 
 export async function saveApiExchange(exchange: ApiExchange): Promise<ApiExchange> {
   const database = await openTrafficDatabase();
-  return new Promise((resolve, reject) => {
+  const saved = await new Promise<ApiExchange>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readwrite");
     const request = transaction.objectStore(STORE_NAME).add(exchange);
     let sequence: number | null = null;
@@ -241,6 +256,12 @@ export async function saveApiExchange(exchange: ApiExchange): Promise<ApiExchang
       reject(transaction.error ?? new Error("Could not save API traffic"));
     };
   });
+  try {
+    await enforceTrafficRetention();
+  } catch (error) {
+    console.warn("API traffic was saved, but retention maintenance failed", error);
+  }
+  return saved;
 }
 
 export async function getApiTrafficPage(
@@ -285,8 +306,7 @@ export function matchesApiTraffic(
     exchange.request.mimeType?.toLowerCase().includes(mimeFilter) === true;
   const sourceHostname = getHostname(exchange.pageUrl);
   const requestHostname = getHostname(exchange.request.url);
-  const domainMatches =
-    !filters.domain || requestHostname.includes(filters.domain.toLowerCase());
+  const domainMatches = matchesApiDomain(requestHostname, filters.domain);
   const noResponse = exchange.response.status === 0;
   const initiatorKind = exchange.initiator?.kind ?? "unknown";
   const isUnknown = !sourceHostname || !requestHostname;
@@ -357,6 +377,22 @@ export function matchesApiTraffic(
     attributionMatches &&
     statusMatches
   );
+}
+
+export function matchesApiDomain(hostname: string, filter: string): boolean {
+  const pattern = filter.trim().toLowerCase();
+  if (!pattern) return true;
+  if (!pattern.includes("*")) return hostname.includes(pattern);
+  const segments = pattern.split("*");
+  let cursor = 0;
+  for (const [index, segment] of segments.entries()) {
+    if (!segment) continue;
+    const matchAt = hostname.indexOf(segment, cursor);
+    if (matchAt === -1 || (index === 0 && matchAt !== 0)) return false;
+    cursor = matchAt + segment.length;
+  }
+  const last = segments[segments.length - 1] ?? "";
+  return pattern.endsWith("*") || hostname.endsWith(last);
 }
 
 function getHostname(rawUrl: string | undefined): string {
@@ -525,6 +561,10 @@ export async function clearApiTraffic(): Promise<void> {
   });
 }
 
+function normalizeHarTiming(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 export function saveHarEntry(
   entry: chrome.devtools.network.Request,
   pageUrl: string
@@ -563,6 +603,19 @@ export function saveHarEntry(
         pageUrl: redactUrl(pageUrl),
         resourceType,
         transferSize,
+        network: {
+          protocol: entry.response.httpVersion.slice(0, 20),
+          connectionId: entry.connection?.slice(0, 100),
+          connectionSetup: normalizeHarTiming(entry.timings.connect) === undefined
+            ? "reused-or-unavailable"
+            : "observed",
+          dnsMs: normalizeHarTiming(entry.timings.dns),
+          connectMs: normalizeHarTiming(entry.timings.connect),
+          tlsMs: normalizeHarTiming(entry.timings.ssl),
+          sendMs: normalizeHarTiming(entry.timings.send),
+          waitMs: normalizeHarTiming(entry.timings.wait),
+          receiveMs: normalizeHarTiming(entry.timings.receive),
+        },
         startedAt: entry.startedDateTime,
         initiator: { kind: "unknown", origin: null },
         durationMs: entry.time,

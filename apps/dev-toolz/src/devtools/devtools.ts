@@ -1,9 +1,20 @@
 import { downloadDataAsFile } from "../lib/download";
 import { explainTraffic } from "../lib/traffic-explanation";
 import { sendToBackground } from "../lib/messaging";
-import type { ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
-import type { SiteAccessMode } from "../lib/site-access";
+import { getApiTrafficPauseStatus, type ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
+import { defaultSettings, getStorage } from "../lib/storage";
+import {
+  loadStarredLogEventIds,
+  MAX_STARRED_LOG_EVENTS,
+  persistStarredLogEventIds,
+} from "../lib/log-stars";
+import { isSiteAllowed, type SiteAccessMode } from "../lib/site-access";
 import type { RaceOutcome, RaceRunResult } from "../background/race-runner";
+import {
+  buildInferredConnectionChain,
+  matchesConnectionChainFilter,
+  type ConnectionChainFilter,
+} from "../lib/api-connection-chain";
 import {
   extractApiFields,
   matchesApiFieldQuery,
@@ -49,6 +60,17 @@ import {
   type RaceFlow,
 } from "../lib/race-flow";
 import {
+  createApiLogRecord,
+  createProtocolLogRecord,
+  LOG_SEARCH_LIMITS,
+  matchesLogRecord,
+  type DetectionExpression,
+  type LogRecord,
+  type LogSourceFilter,
+} from "../lib/log-search";
+import { queryLogHistoryOffThread } from "../lib/log-history-client";
+import { enforceTrafficRetention } from "../lib/traffic-retention";
+import {
   extractGraphqlOperation,
   getProtocolEvents,
   matchesProtocolEvent,
@@ -88,9 +110,25 @@ interface ReconEndpoint {
   samples: ApiExchange[];
 }
 
-type ToolSection = "traffic" | "red-team";
+type ToolSection = "log-search" | "traffic" | "red-team";
 type RedTeamTool = "recon" | "protocols" | "api-map" | "race-lab";
 
+const logSearchSection = requireElement("log-search-section");
+const logSearchForm = requireForm("log-search-form");
+const logSearchQuery = requireInput("log-search-query");
+const logSearchSource = requireSelect("log-search-source");
+const logSearchTime = requireSelect("log-search-time");
+const logCustomTime = requireElement("log-custom-time");
+const logSearchEarliest = requireInput("log-search-earliest");
+const logSearchLatest = requireInput("log-search-latest");
+const logSearchSubmit = requireButton("log-search-submit");
+const logSearchClear = requireButton("log-search-clear");
+const logSearchError = requireElement("log-search-error");
+const logSearchStatus = requireElement("log-search-status");
+const logCaptureSite = requireSelect("log-capture-site");
+const logTimeline = requireElement("log-timeline");
+const logFieldList = requireElement("log-field-list");
+const logSearchResults = requireElement("log-search-results");
 const requestList = requireElement("request-list");
 const emptyState = requireElement("empty-state");
 const requestCount = requireElement("request-count");
@@ -115,9 +153,11 @@ const routeFilter = requireSelect("filter-route");
 const methodFilter = requireSelect("filter-method");
 const statusFilter = requireSelect("filter-status");
 const mimeFilter = requireInput("filter-mime");
+const connectionFilter = requireSelect("filter-connection");
 const resetFilters = requireButton("reset-filters");
 const trafficSection = requireElement("traffic-section");
 const redTeamSection = requireElement("red-team-section");
+const showLogSearchSection = requireButton("show-log-search-section");
 const showTrafficSection = requireButton("show-traffic-section");
 const showRedTeamSection = requireButton("show-red-team-section");
 const refreshRecon = requireButton("refresh-recon");
@@ -174,8 +214,24 @@ const hiddenEndpoints = new Set<string>();
 const hiddenMediaStreams = new Set<string>();
 const selectedFieldNames = new Set(["request.method", "response.status", "url.host"]);
 let activeFieldQuery: ApiFieldQuery | null = null;
+let activeConnectionFilter: ConnectionChainFilter = "";
 const sessionManifestUrls = new Map<number, { url: string; pageHostname: string }>();
-let activeSection: ToolSection = "traffic";
+let activeSection: ToolSection = "log-search";
+let logSearchLoaded = false;
+let logRecords: LogRecord[] = [];
+let pendingLogRecords: LogRecord[] = [];
+let logSearchRenderFrame: number | null = null;
+let logSearchAbort: AbortController | null = null;
+let logSearchMatching = 0;
+let logSearchScanned = 0;
+let activeLogSearch: {
+  expression: DetectionExpression | null;
+  source: LogSourceFilter;
+  earliest: number | null;
+  latest: number | null;
+} | null = null;
+let starredLogEventIds = new Set<string>();
+let starWritePending = false;
 let reconLoaded = false;
 let reconExchanges: ApiExchange[] = [];
 let activeRedTeamTool: RedTeamTool = "recon";
@@ -189,10 +245,27 @@ let raceFlows: RaceFlow[] = [];
 let raceLoaded = false;
 let activeRaceRunId: string | null = null;
 
+showLogSearchSection.addEventListener("click", () => {
+  setActiveSection("log-search");
+  if (logSearchLoaded) renderLogSearch();
+  else void refreshLogSearch();
+});
 showTrafficSection.addEventListener("click", () => setActiveSection("traffic"));
 showRedTeamSection.addEventListener("click", () => {
   setActiveSection("red-team");
   if (!reconLoaded) void refreshReconWorkspace();
+});
+logSearchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void refreshLogSearch();
+});
+logSearchTime.addEventListener("change", updateCustomTimeVisibility);
+logSearchClear.addEventListener("click", () => {
+  logSearchForm.reset();
+  logSearchQuery.value = "";
+  updateCustomTimeVisibility();
+  void refreshLogSearch();
+  logSearchQuery.focus();
 });
 refreshRecon.addEventListener("click", () => void refreshReconWorkspace());
 reconScope.addEventListener("change", renderReconWorkspace);
@@ -237,6 +310,7 @@ void initializePanel();
 
 chrome.runtime.onMessage.addListener((message: unknown) => {
   if (isProtocolCapturedMessage(message)) {
+    streamLogRecord(createProtocolLogRecord(message.payload));
     if (protocolLoaded && matchesProtocolEvent(message.payload, readProtocolFilters())) {
       displayedProtocolEvents.unshift(message.payload);
       if (activeSection === "red-team" && activeRedTeamTool === "protocols") renderProtocolWorkspace();
@@ -251,6 +325,7 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
     });
   }
   totalCount += 1;
+  streamLogRecord(createApiLogRecord(message.payload));
   updateCount();
   updateScopeActions();
   if (reconLoaded) {
@@ -268,11 +343,11 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
       hiddenEndpoints.size > 0 ||
       hiddenMediaStreams.size > 0 ||
       isMediaAnalysisMode(analysisFilter.value) ||
+      activeConnectionFilter ||
       activeFieldQuery
     ) {
       renderDisplayedTraffic();
-    }
-    else {
+    } else {
       requestList.prepend(createExchange(message.payload));
       renderFieldSidebar();
     }
@@ -369,9 +444,9 @@ loadOlder.addEventListener("click", () => {
   void loadNextPage();
 });
 
-captureSite.addEventListener("change", () => {
-  void updateCapturePause();
-});
+for (const control of [logCaptureSite, captureSite]) {
+  control.addEventListener("change", () => void updateCapturePause(control));
+}
 
 scopeFilter.addEventListener("change", () => {
   if (scopeFilter.value !== "current" && groupingMode === "site") groupingMode = null;
@@ -384,12 +459,14 @@ scopeFilter.addEventListener("change", () => {
 filterForm.addEventListener("submit", (event) => {
   event.preventDefault();
   activeFilters = readFilters();
+  activeConnectionFilter = readConnectionFilter();
   void resetDisplayedTraffic();
 });
 
 resetFilters.addEventListener("click", () => {
   filterForm.reset();
   activeFilters = readFilters();
+  activeConnectionFilter = readConnectionFilter();
   void resetDisplayedTraffic();
 });
 
@@ -415,24 +492,464 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+async function refreshLogSearch(): Promise<void> {
+  const range = readLogTimeRange();
+  if (range.error) {
+    logSearchError.textContent = range.error;
+    logSearchStatus.textContent = "Time range needs attention";
+    logTimeline.replaceChildren();
+    logFieldList.replaceChildren();
+    logSearchResults.replaceChildren();
+    return;
+  }
+  logSearchAbort?.abort();
+  const controller = new AbortController();
+  logSearchAbort = controller;
+  logSearchLoaded = false;
+  logSearchSubmit.disabled = true;
+  logSearchStatus.textContent = "Searching indexed history…";
+  logSearchError.textContent = "";
+  const source = readLogSource();
+  try {
+    const result = await queryLogHistoryOffThread(
+      {
+        rawQuery: logSearchQuery.value.trim(),
+        source,
+        earliestTimestamp: range.earliest,
+        latestTimestamp: range.latest,
+      },
+      controller.signal,
+      (scanned) => {
+        if (logSearchAbort === controller) {
+          logSearchStatus.textContent = `Searching indexed history… ${scanned.toLocaleString()} scanned`;
+        }
+      }
+    );
+    if (controller.signal.aborted) return;
+    if (result.error) {
+      activeLogSearch = null;
+      logRecords = [];
+      logSearchMatching = 0;
+      logSearchScanned = 0;
+      logSearchLoaded = true;
+      logSearchError.textContent = result.error;
+      logSearchStatus.textContent = "Query needs attention";
+      logTimeline.replaceChildren();
+      logFieldList.replaceChildren();
+      logSearchResults.replaceChildren();
+      return;
+    }
+    activeLogSearch = {
+      expression: result.expression,
+      source,
+      earliest: range.earliest,
+      latest: range.latest,
+    };
+    logRecords = result.records;
+    logSearchMatching = result.matching;
+    logSearchScanned = result.scanned;
+    logSearchLoaded = true;
+    const pending = pendingLogRecords;
+    pendingLogRecords = [];
+    for (const record of pending) applyLiveLogRecord(record);
+    renderLogSearch();
+  } catch {
+    if (controller.signal.aborted) return;
+    logSearchError.textContent = "Stored events could not be searched. Try again.";
+    logSearchStatus.textContent = "Search unavailable";
+  } finally {
+    if (logSearchAbort === controller) {
+      logSearchAbort = null;
+      logSearchSubmit.disabled = false;
+    }
+  }
+}
+
+function streamLogRecord(record: LogRecord): void {
+  if (!logSearchLoaded) {
+    pendingLogRecords.unshift(record);
+    pendingLogRecords = pendingLogRecords.slice(0, 2_000);
+    return;
+  }
+  applyLiveLogRecord(record);
+}
+
+function applyLiveLogRecord(record: LogRecord): void {
+  if (!activeLogSearch || logRecords.some((candidate) => candidate.id === record.id)) return;
+  const { expression, source, earliest, latest } = activeLogSearch;
+  if (!matchesLogRecord(record, null, source, earliest, latest)) return;
+  logSearchScanned += 1;
+  if (!matchesLogRecord(record, expression, source, earliest, latest)) return;
+  logSearchMatching += 1;
+  prependLogRecord(record);
+  if (activeSection === "log-search") queueLogSearchRender();
+}
+
+function queueLogSearchRender(): void {
+  if (logSearchRenderFrame !== null) return;
+  logSearchRenderFrame = window.requestAnimationFrame(() => {
+    logSearchRenderFrame = null;
+    if (activeSection === "log-search") renderLogSearch();
+  });
+}
+
+function prependLogRecord(record: LogRecord): void {
+  if (logRecords.some((candidate) => candidate.id === record.id)) return;
+  logRecords.unshift(record);
+  if (logRecords.length > LOG_SEARCH_LIMITS.results) logRecords.pop();
+}
+
+function readLogSource(): LogSourceFilter {
+  return logSearchSource.value === "api" || logSearchSource.value === "red-team"
+    ? logSearchSource.value
+    : "";
+}
+
+function updateCustomTimeVisibility(): void {
+  const custom = logSearchTime.value === "custom";
+  logCustomTime.hidden = !custom;
+  if (!custom || (logSearchEarliest.value && logSearchLatest.value)) return;
+  const latest = new Date();
+  latest.setSeconds(0, 0);
+  const earliest = new Date(latest.getTime() - 60 * 60_000);
+  logSearchEarliest.value = toLocalDateTimeValue(earliest);
+  logSearchLatest.value = toLocalDateTimeValue(latest);
+}
+
+function toLocalDateTimeValue(date: Date): string {
+  const part = (value: number): string => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}`;
+}
+
+function readLogTimeRange(): { earliest: number | null; latest: number | null; error: string | null } {
+  const duration = logSearchTime.value === "15m"
+    ? 15 * 60_000
+    : logSearchTime.value === "1h"
+      ? 60 * 60_000
+      : logSearchTime.value === "4h"
+        ? 4 * 60 * 60_000
+        : logSearchTime.value === "24h"
+          ? 24 * 60 * 60_000
+          : logSearchTime.value === "7d"
+            ? 7 * 24 * 60 * 60_000
+            : null;
+  if (duration !== null) return { earliest: Date.now() - duration, latest: null, error: null };
+  if (logSearchTime.value !== "custom") return { earliest: null, latest: null, error: null };
+  const earliest = new Date(logSearchEarliest.value).getTime();
+  const latest = new Date(logSearchLatest.value).getTime();
+  if (!Number.isFinite(earliest) || !Number.isFinite(latest)) {
+    return { earliest: null, latest: null, error: "Choose both custom time boundaries." };
+  }
+  if (earliest > latest) {
+    return { earliest: null, latest: null, error: "Earliest time must be before latest time." };
+  }
+  return { earliest, latest, error: null };
+}
+
+function renderLogSearch(): void {
+  logSearchError.textContent = "";
+  const shown = logRecords.length < logSearchMatching
+    ? ` · newest ${logRecords.length.toLocaleString()} shown`
+    : "";
+  logSearchStatus.textContent = `Live · ${logSearchMatching.toLocaleString()} matching · ${logSearchScanned.toLocaleString()} indexed events scanned${shown}`;
+  renderLogTimeline(logRecords);
+  renderLogFields(logRecords);
+  renderLogResults(logRecords);
+}
+
+function renderLogTimeline(records: LogRecord[]): void {
+  if (records.length === 0) {
+    logTimeline.replaceChildren();
+    return;
+  }
+  const times = records.map((record) => Date.parse(record.timestamp)).filter(Number.isFinite);
+  if (times.length === 0) {
+    logTimeline.replaceChildren();
+    return;
+  }
+  const bucketCount = 12;
+  const minimum = Math.min(...times);
+  const maximum = Math.max(...times);
+  const span = Math.max(maximum - minimum, 60_000);
+  const buckets = Array.from({ length: bucketCount }, () => 0);
+  for (const time of times) {
+    const index = Math.min(bucketCount - 1, Math.floor(((time - minimum) / span) * bucketCount));
+    buckets[index] = (buckets[index] ?? 0) + 1;
+  }
+  const highest = Math.max(...buckets, 1);
+  logTimeline.replaceChildren(...buckets.map((count, index) => {
+    const item = document.createElement("li");
+    const bar = document.createElement("span");
+    bar.style.height = `${Math.max(2, Math.round((count / highest) * 44))}px`;
+    const bucketStart = new Date(minimum + (span / bucketCount) * index);
+    const accessibleLabel = `${count} events near ${bucketStart.toLocaleTimeString()}`;
+    item.title = accessibleLabel;
+    item.setAttribute("aria-label", accessibleLabel);
+    const label = document.createElement("span");
+    label.textContent = index === 0 || index === bucketCount - 1
+      ? bucketStart.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "";
+    item.append(bar, label);
+    return item;
+  }));
+}
+
+function renderLogFields(records: LogRecord[]): void {
+  const facets = new Map<string, { events: number; values: Map<string, number> }>();
+  for (const record of records) {
+    for (const [field, values] of Object.entries(record.fields)) {
+      const facet = facets.get(field) ?? { events: 0, values: new Map<string, number>() };
+      facet.events += 1;
+      for (const value of new Set(values)) {
+        facet.values.set(value, (facet.values.get(value) ?? 0) + 1);
+      }
+      facets.set(field, facet);
+    }
+  }
+  const available = [...facets]
+    .sort(([left, leftFacet], [right, rightFacet]) =>
+      rightFacet.events - leftFacet.events || left.localeCompare(right)
+    )
+    .slice(0, 30);
+  if (available.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "Fields appear when events match.";
+    logFieldList.replaceChildren(empty);
+    return;
+  }
+  logFieldList.replaceChildren(...available.map(([field, facet]) => {
+    const details = document.createElement("details");
+    details.className = "log-field-facet";
+    const summary = document.createElement("summary");
+    const fieldName = document.createElement("code");
+    fieldName.textContent = field;
+    const coverage = document.createElement("span");
+    coverage.className = "log-field-facet-meta";
+    coverage.textContent = `${facet.events} events · ${facet.values.size} values`;
+    summary.append(fieldName, coverage);
+
+    const values = document.createElement("ul");
+    values.className = "log-field-values";
+    const topValues = [...facet.values]
+      .sort(([left, leftCount], [right, rightCount]) =>
+        rightCount - leftCount || left.localeCompare(right)
+      )
+      .slice(0, 10);
+    for (const [value, count] of topValues) {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.title = `Add ${field}=${value} to the query`;
+      const label = document.createElement("span");
+      label.textContent = value;
+      const frequency = document.createElement("span");
+      frequency.textContent = String(count);
+      frequency.setAttribute("aria-label", `${count} matching events`);
+      button.append(label, frequency);
+      button.addEventListener("click", () => appendLogQuery(field, value));
+      item.appendChild(button);
+      values.appendChild(item);
+    }
+    details.append(summary, values);
+    return details;
+  }));
+}
+
+function createLogFilterButton(
+  field: string,
+  value: string,
+  label = value,
+  source?: LogSourceFilter,
+  _record?: LogRecord
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "log-filter-link";
+  button.textContent = label;
+  button.title = `Add ${field}=${value} to Log Search`;
+  button.addEventListener("click", () => confirmAddLogFilter(field, value, source));
+  return button;
+}
+
+function confirmAddLogFilter(
+  field: string,
+  value: string,
+  source?: LogSourceFilter
+): void {
+  const escapedValue = /\s|["']/.test(value) ? JSON.stringify(value) : value;
+  const clause = `${field}=${escapedValue}`;
+  if (!window.confirm(`Add this filter to Log Search?\n\n${clause}`)) return;
+  if (source) logSearchSource.value = source;
+  logSearchTime.value = "all";
+  updateCustomTimeVisibility();
+  appendLogQuery(field, value);
+  setActiveSection("log-search");
+  logSearchQuery.focus();
+}
+
+function appendLogQuery(field: string, value: string): void {
+  const escapedValue = /\s|["']/.test(value) ? JSON.stringify(value) : value;
+  const clause = `${field}=${escapedValue}`;
+  logSearchQuery.value = `${logSearchQuery.value.trim()} ${clause}`.trim();
+  void refreshLogSearch();
+  logSearchQuery.focus();
+}
+
+function renderLogResults(records: LogRecord[]): void {
+  if (records.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "log-empty";
+    empty.textContent = logSearchScanned > 0
+      ? "No indexed events match this search."
+      : "No traffic or red-team protocol events are stored yet.";
+    logSearchResults.replaceChildren(empty);
+    return;
+  }
+  const rendered: HTMLElement[] = [];
+  const seenAttachments = new Set<string>();
+  for (const record of records) {
+    const attachedAt = record.fields["capture.attached_at"]?.[0];
+    const transition = record.fields["capture.transition"]?.[0];
+    if (attachedAt && transition && transition !== "initial" && !seenAttachments.has(attachedAt)) {
+      seenAttachments.add(attachedAt);
+      rendered.push(createJourneyMarker(record, transition));
+    }
+    rendered.push(createLogResult(record));
+  }
+  logSearchResults.replaceChildren(...rendered);
+}
+
+function createJourneyMarker(record: LogRecord, transition: string): HTMLElement {
+  const marker = document.createElement("aside");
+  marker.className = "log-journey-marker";
+  const previousHost = record.fields["capture.previous_page_host"]?.[0] ?? "another page";
+  const pageHost = record.fields["page.host"]?.[0] ?? "this page";
+  const label = transition === "new-window"
+    ? "new window"
+    : transition === "navigation"
+      ? "navigation"
+      : "tab switch";
+  marker.textContent = `Capture moved ${previousHost} → ${pageHost} · ${label} · attached after page load; initial requests may be missing.`;
+  return marker;
+}
+
+function createStarButton(recordId: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "event-star-button";
+  button.dataset.eventId = recordId;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void toggleStarredLogEvent(recordId);
+  });
+  updateStarButton(button);
+  return button;
+}
+
+function updateStarButton(button: HTMLButtonElement): void {
+  const recordId = button.dataset.eventId ?? "";
+  const starred = starredLogEventIds.has(recordId);
+  button.textContent = starred ? "★" : "☆";
+  button.title = starred ? "Remove star" : "Star event";
+  button.setAttribute("aria-label", button.title);
+  button.setAttribute("aria-pressed", String(starred));
+  button.disabled = starWritePending;
+}
+
+function updateStarButtons(): void {
+  document.querySelectorAll<HTMLButtonElement>(".event-star-button").forEach(updateStarButton);
+}
+
+async function toggleStarredLogEvent(recordId: string): Promise<void> {
+  if (starWritePending) return;
+  const next = new Set(starredLogEventIds);
+  if (next.has(recordId)) next.delete(recordId);
+  else {
+    if (next.size >= MAX_STARRED_LOG_EVENTS) {
+      window.alert(`You can star up to ${MAX_STARRED_LOG_EVENTS.toLocaleString()} events. Remove a star before adding another.`);
+      return;
+    }
+    next.add(recordId);
+  }
+  starWritePending = true;
+  updateStarButtons();
+  const saved = await persistStarredLogEventIds(next);
+  if (saved) starredLogEventIds = next;
+  else window.alert("Could not save this star. Try again.");
+  starWritePending = false;
+  updateStarButtons();
+}
+
+function createLogResult(record: LogRecord): HTMLElement {
+  const article = document.createElement("article");
+  article.className = "log-result";
+  const heading = document.createElement("div");
+  heading.className = "log-result-heading";
+  const titleContent = document.createElement("div");
+  titleContent.className = "log-result-title";
+  const title = document.createElement("h3");
+  title.textContent = record.title;
+  const metadata = document.createElement("p");
+  metadata.textContent = `${record.source === "api" ? "Traffic event" : "Red-team protocol event"} · ${new Date(record.timestamp).toLocaleString()}`;
+  titleContent.append(title, metadata);
+  heading.append(titleContent, createStarButton(record.id));
+  const summary = document.createElement("p");
+  summary.className = "log-result-summary";
+  summary.textContent = record.summary;
+  const details = document.createElement("details");
+  const detailsSummary = document.createElement("summary");
+  detailsSummary.textContent = "Fields";
+  const list = document.createElement("dl");
+  for (const [field, values] of Object.entries(record.fields).slice(0, 40)) {
+    const term = document.createElement("dt");
+    term.textContent = field;
+    const description = document.createElement("dd");
+    description.textContent = values.join(", ");
+    list.append(term, description);
+  }
+  details.append(detailsSummary, list);
+  article.append(heading, summary, details);
+  return article;
+}
+
 async function initializePanel(): Promise<void> {
-  currentPageHostname = await getInspectedPageHostname();
+  starredLogEventIds = await loadStarredLogEventIds();
+  const inspectedPageUrl = await getInspectedPageUrl();
+  currentPageHostname = getHostname(inspectedPageUrl);
   activeFilters = readFilters();
-  await refreshCaptureStatus();
+  await refreshCaptureStatus(inspectedPageUrl);
+  try {
+    await enforceTrafficRetention({});
+  } catch (error) {
+    console.warn("Traffic retention maintenance failed", error);
+  }
   totalCount = await countApiTraffic();
   updateCount();
   updateScopeActions();
-  await loadNextPage();
+  await Promise.all([loadNextPage(), refreshLogSearch()]);
 }
 
 function setActiveSection(section: ToolSection): void {
   activeSection = section;
+  const showSearch = section === "log-search";
   const showTraffic = section === "traffic";
+  const showRedTeam = section === "red-team";
+  if (!showSearch && logSearchRenderFrame !== null) {
+    window.cancelAnimationFrame(logSearchRenderFrame);
+    logSearchRenderFrame = null;
+  }
+  logSearchSection.hidden = !showSearch;
   trafficSection.hidden = !showTraffic;
-  redTeamSection.hidden = showTraffic;
+  redTeamSection.hidden = !showRedTeam;
+  showLogSearchSection.setAttribute("aria-pressed", String(showSearch));
   showTrafficSection.setAttribute("aria-pressed", String(showTraffic));
-  showRedTeamSection.setAttribute("aria-pressed", String(!showTraffic));
-  document.title = showTraffic ? "Dev Toolz API Traffic" : `Dev Toolz Red Team ${activeRedTeamTool}`;
+  showRedTeamSection.setAttribute("aria-pressed", String(showRedTeam));
+  document.title = showSearch
+    ? "Dev Toolz Log Search"
+    : showTraffic
+      ? "Dev Toolz API Traffic"
+      : `Dev Toolz Red Team ${activeRedTeamTool}`;
 }
 
 async function setActiveRedTeamTool(tool: RedTeamTool): Promise<void> {
@@ -565,17 +1082,41 @@ function createProtocolSession(events: ProtocolEvent[]): HTMLElement {
 }
 
 function createProtocolEventView(event: ProtocolEvent): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "protocol-event-row";
   const details = document.createElement("details");
   const summary = document.createElement("summary");
   const operation = event.graphql ? ` · ${event.graphql.type} ${event.graphql.name ?? "anonymous"}` : "";
   summary.textContent = `${event.direction} · ${event.kind}${operation} · ${formatByteSize(event.payloadBytes)} · ${new Date(event.timestamp).toLocaleTimeString()}${event.truncated ? " · truncated" : ""}${event.binary ? " · binary" : ""}`;
-  details.append(summary, createCopyButton("Copy event", JSON.stringify(event, null, 2)));
+  const fields = document.createElement("div");
+  const logRecord = createProtocolLogRecord(event);
+  fields.className = "protocol-log-fields";
+  fields.append(
+    createLogFilterButton("transport", event.transport, `transport=${event.transport}`, "red-team", logRecord),
+    createLogFilterButton("kind", event.kind, `kind=${event.kind}`, "red-team", logRecord),
+    createLogFilterButton("direction", event.direction, `direction=${event.direction}`, "red-team", logRecord)
+  );
+  try {
+    const url = new URL(event.url);
+    fields.append(
+      createLogFilterButton("host", url.hostname, `host=${url.hostname}`, "red-team", logRecord),
+      createLogFilterButton("path", url.pathname, `path=${url.pathname}`, "red-team", logRecord)
+    );
+  } catch {
+    // Malformed captured URLs remain visible in the protocol session.
+  }
+  if (event.eventName) fields.appendChild(createLogFilterButton("event", event.eventName, `event=${event.eventName}`, "red-team", logRecord));
+  if (event.graphql?.name) {
+    fields.appendChild(createLogFilterButton("graphql.operation", event.graphql.name, `graphql.operation=${event.graphql.name}`, "red-team", logRecord));
+  }
+  details.append(summary, fields, createCopyButton("Copy event", JSON.stringify(event, null, 2)));
   if (event.payload !== undefined) {
     const payload = createCodeBlock(event.payload);
     payload.className = "protocol-payload";
     details.appendChild(payload);
   }
-  return details;
+  row.append(createStarButton(logRecord.id), details);
+  return row;
 }
 
 function formatProtocolTransport(transport: ProtocolTransport): string {
@@ -651,11 +1192,15 @@ function createApiMapRow(entry: AttackMapEntry): HTMLTableRowElement {
   badge.textContent = entry.state[0]?.toUpperCase() + entry.state.slice(1);
   state.appendChild(badge);
   const method = document.createElement("td");
-  method.textContent = entry.method.toUpperCase();
+  method.appendChild(createLogFilterButton("method", entry.method.toUpperCase(), entry.method.toUpperCase(), "api"));
   const route = document.createElement("td");
-  const routeCode = document.createElement("code");
-  routeCode.className = "recon-route";
-  routeCode.textContent = `${entry.observed?.hostname ?? "baseline"}${entry.path}`;
+  const routeCode = createLogFilterButton(
+    "path",
+    entry.path.replace(/\{[^/{}]+\}/g, "*"),
+    `${entry.observed?.hostname ?? "baseline"}${entry.path}`,
+    "api"
+  );
+  routeCode.classList.add("recon-route");
   route.appendChild(routeCode);
   const requests = document.createElement("td");
   requests.textContent = entry.observed ? String(entry.observed.requestCount) : "Not observed";
@@ -1033,6 +1578,13 @@ async function resetDisplayedTraffic(): Promise<void> {
   await loadNextPage();
 }
 
+function readConnectionFilter(): ConnectionChainFilter {
+  const value = connectionFilter.value;
+  return value === "tcp-handshake" || value === "quic-handshake" || value === "reused"
+    ? value
+    : "";
+}
+
 function readFilters(): ApiTrafficFilters {
   const analysis = analysisFilter.value;
   const attribution = routeFilter.value;
@@ -1088,13 +1640,6 @@ function getInspectedPageOrigin(): Promise<string> {
   });
 }
 
-function getInspectedPageHostname(): Promise<string> {
-  return new Promise((resolve) => {
-    chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
-      resolve(!exceptionInfo && typeof result === "string" ? getHostname(result) : "");
-    });
-  });
-}
 
 function getHostname(rawUrl: string): string {
   try {
@@ -1185,15 +1730,20 @@ function collectReconSignals(endpoint: ReconEndpoint, exchange: ApiExchange): vo
 function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {
   const row = document.createElement("tr");
   const method = document.createElement("td");
-  const methodCode = document.createElement("code");
-  methodCode.className = "recon-method";
-  methodCode.textContent = endpoint.method;
+  const sampleRecord = endpoint.samples[0] ? createApiLogRecord(endpoint.samples[0]) : undefined;
+  const methodCode = createLogFilterButton("method", endpoint.method, endpoint.method, "api", sampleRecord);
+  methodCode.classList.add("recon-method");
   method.appendChild(methodCode);
 
   const route = document.createElement("td");
-  const routeCode = document.createElement("code");
-  routeCode.className = "recon-route";
-  routeCode.textContent = endpoint.route;
+  let latestPath = endpoint.route;
+  try {
+    if (endpoint.samples[0]) latestPath = new URL(endpoint.samples[0].request.url).pathname;
+  } catch {
+    // Keep the normalized route for malformed stored URLs.
+  }
+  const routeCode = createLogFilterButton("path", latestPath, endpoint.route, "api", sampleRecord);
+  routeCode.classList.add("recon-route");
   route.appendChild(routeCode);
   const latestExchange = endpoint.samples[0];
   if (latestExchange) route.appendChild(createReconEvidence(latestExchange));
@@ -1201,10 +1751,17 @@ function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {
   const requests = document.createElement("td");
   requests.textContent = String(endpoint.requestCount);
   const statuses = document.createElement("td");
-  statuses.textContent = [...endpoint.statuses]
-    .sort((left, right) => left - right)
-    .map((status) => (status === 0 ? "No response" : String(status)))
-    .join(", ");
+  const sortedStatuses = [...endpoint.statuses].sort((left, right) => left - right);
+  for (const status of sortedStatuses) {
+    if (statuses.childElementCount) statuses.append(", ");
+    statuses.appendChild(createLogFilterButton(
+      "status",
+      String(status),
+      status === 0 ? "No response" : String(status),
+      "api",
+      sampleRecord
+    ));
+  }
   const signals = document.createElement("td");
   signals.className = "recon-signals";
   signals.textContent = formatReconSignals(endpoint);
@@ -1254,19 +1811,33 @@ function formatReconSignals(endpoint: ReconEndpoint): string {
   return signals.join(" · ") || "No structured inputs observed";
 }
 
-async function refreshCaptureStatus(): Promise<void> {
-  const response = await sendToBackground("GET_API_CAPTURE_STATUS", {
-    tabId: chrome.devtools.inspectedWindow.tabId,
-  });
-  if (response.success && response.data) renderCaptureStatus(response.data);
-  else renderCaptureUnavailable();
+async function refreshCaptureStatus(pageUrl = ""): Promise<void> {
+  try {
+    const inspectedPageUrl = pageUrl || await getInspectedPageUrl();
+    const [storedSettings, pauseStatus] = await Promise.all([
+      getStorage("settings"),
+      getApiTrafficPauseStatus(inspectedPageUrl),
+    ]);
+    const settings = { ...defaultSettings, ...storedSettings };
+    renderCaptureStatus({
+      ...pauseStatus,
+      enabled: settings.enabled,
+      allowed: isSiteAllowed(inspectedPageUrl, {
+        mode: settings.siteAccessMode,
+        sites: settings.siteAccessSites,
+      }),
+      siteAccessMode: settings.siteAccessMode,
+    });
+  } catch {
+    renderCaptureUnavailable();
+  }
 }
 
-async function updateCapturePause(): Promise<void> {
-  const action = captureSite.value;
+async function updateCapturePause(control: HTMLSelectElement): Promise<void> {
+  const action = control.value;
   if (!Object.prototype.hasOwnProperty.call(PAUSE_DURATIONS, action)) return;
   const durationMs = PAUSE_DURATIONS[action as keyof typeof PAUSE_DURATIONS];
-  captureSite.disabled = true;
+  for (const captureControl of [logCaptureSite, captureSite]) captureControl.disabled = true;
   const response = await sendToBackground("SET_API_CAPTURE_PAUSE", {
     tabId: chrome.devtools.inspectedWindow.tabId,
     durationMs,
@@ -1298,28 +1869,27 @@ function renderCaptureStatus(
               })}`
           : `Capturing: ${status.hostname}`
       : "No website selected";
-  const options = [createOption("", statusText)];
-  if (!status.enabled || !status.allowed) {
-    captureSite.replaceChildren(...options);
-    captureSite.disabled = true;
-    return;
+  for (const control of [logCaptureSite, captureSite]) {
+    const options = [createOption("", statusText)];
+    if (status.paused) options.push(createOption("resume", "Resume this site"));
+    else if (status.enabled && status.allowed && status.hostname) {
+      options.push(
+        createOption("pause5", "Pause site for 5 minutes"),
+        createOption("pause15", "Pause site for 15 minutes"),
+        createOption("pause60", "Pause site for 1 hour"),
+        createOption("pauseUntilResumed", "Pause until resumed")
+      );
+    }
+    control.replaceChildren(...options);
+    control.disabled = !status.enabled || !status.allowed || !status.hostname;
   }
-  if (status.paused) options.push(createOption("resume", "Resume this site"));
-  else if (status.hostname) {
-    options.push(
-      createOption("pause5", "Pause site for 5 minutes"),
-      createOption("pause15", "Pause site for 15 minutes"),
-      createOption("pause60", "Pause site for 1 hour"),
-      createOption("pauseUntilResumed", "Pause until resumed")
-    );
-  }
-  captureSite.replaceChildren(...options);
-  captureSite.disabled = !status.hostname;
 }
 
 function renderCaptureUnavailable(): void {
-  captureSite.replaceChildren(createOption("", "Capture controls unavailable"));
-  captureSite.disabled = true;
+  for (const control of [logCaptureSite, captureSite]) {
+    control.replaceChildren(createOption("", "Capture controls unavailable"));
+    control.disabled = true;
+  }
 }
 
 function createOption(value: string, label: string): HTMLOptionElement {
@@ -1350,6 +1920,7 @@ function updateScopeActions(): void {
 function getVisibleExchanges(): ApiExchange[] {
   return displayedExchanges.filter((exchange) =>
     !isExchangeHidden(exchange) &&
+    matchesConnectionChainFilter(exchange, activeConnectionFilter) &&
     (!activeFieldQuery || matchesApiFieldQuery(exchange, activeFieldQuery))
   );
 }
@@ -1359,13 +1930,6 @@ function updateFieldSearchActions(): void {
   fieldSearchClear.hidden = !fieldSearch.value && !activeFieldQuery;
 }
 
-function setFieldSearch(name: string, value?: string): void {
-  fieldSearch.value = `${name}=${value ?? ""}`;
-  updateFieldSearchActions();
-  renderFieldSidebar();
-  fieldSearch.focus();
-  if (value === undefined) fieldSearch.setSelectionRange(fieldSearch.value.length, fieldSearch.value.length);
-}
 
 function applyFieldSearch(): void {
   const query = parseApiFieldQuery(fieldSearch.value);
@@ -1424,8 +1988,8 @@ function createFieldSummary(field: ApiFieldSummary): HTMLElement {
   key.type = "button";
   key.className = "field-key";
   key.textContent = field.name;
-  key.title = `Filter by ${field.name}`;
-  key.addEventListener("click", () => setFieldSearch(field.name));
+  key.title = `Add ${field.name}=* to Log Search`;
+  key.addEventListener("click", () => confirmAddLogFilter(field.name, "*", "api"));
   const coverage = document.createElement("span");
   coverage.textContent = `${field.coveragePercentage}%`;
   coverage.title = `${field.eventCount} loaded results · ${field.distinctValueCount} distinct values`;
@@ -1442,8 +2006,8 @@ function createFieldSummary(field: ApiFieldSummary): HTMLElement {
     value.type = "button";
     value.className = "field-value";
     value.textContent = topValue.value;
-    value.title = `Filter by ${field.name}=${topValue.value}`;
-    value.addEventListener("click", () => setFieldSearch(field.name, topValue.value));
+    value.title = `Add ${field.name}=${topValue.value} to Log Search`;
+    value.addEventListener("click", () => confirmAddLogFilter(field.name, topValue.value, "api"));
     const count = document.createElement("span");
     count.textContent = `× ${topValue.count}`;
     item.append(value, count);
@@ -1464,6 +2028,39 @@ function createFieldSummary(field: ApiFieldSummary): HTMLElement {
   return row;
 }
 
+function createConnectionDetails(exchange: ApiExchange): HTMLDetailsElement {
+  const chain = buildInferredConnectionChain(exchange);
+  const details = document.createElement("details");
+  details.className = "connection-chain";
+  const summary = document.createElement("summary");
+  summary.textContent = `Connection chain (inferred) · ${chain.protocol}`;
+  const list = document.createElement("ol");
+  for (const step of chain.steps) {
+    const item = document.createElement("li");
+    item.dataset.direction = step.direction;
+    const direction = document.createElement("span");
+    direction.className = "connection-direction";
+    direction.textContent = step.direction === "outbound"
+      ? "→"
+      : step.direction === "inbound"
+        ? "←"
+        : step.direction === "bidirectional"
+          ? "↔"
+          : "•";
+    const label = document.createElement("strong");
+    label.textContent = step.label;
+    const timing = document.createElement("span");
+    timing.className = "connection-timing";
+    timing.textContent = step.detail;
+    item.append(direction, label, timing);
+    list.appendChild(item);
+  }
+  const disclaimer = document.createElement("p");
+  disclaimer.textContent = chain.disclaimer;
+  details.append(summary, list, disclaimer);
+  return details;
+}
+
 function createFieldsDetails(exchange: ApiExchange): HTMLDetailsElement {
   const fields = extractApiFields(exchange);
   const details = document.createElement("details");
@@ -1476,13 +2073,13 @@ function createFieldsDetails(exchange: ApiExchange): HTMLDetailsElement {
     const key = document.createElement("button");
     key.type = "button";
     key.textContent = field.name;
-    key.addEventListener("click", () => setFieldSearch(field.name));
+    key.addEventListener("click", () => confirmAddLogFilter(field.name, "*", "api"));
     name.appendChild(key);
     const value = document.createElement("dd");
     const valueButton = document.createElement("button");
     valueButton.type = "button";
     valueButton.textContent = field.value;
-    valueButton.addEventListener("click", () => setFieldSearch(field.name, field.value));
+    valueButton.addEventListener("click", () => confirmAddLogFilter(field.name, field.value, "api"));
     value.appendChild(valueButton);
     list.append(name, value);
   }
@@ -1492,9 +2089,12 @@ function createFieldsDetails(exchange: ApiExchange): HTMLDetailsElement {
 
 function renderDisplayedTraffic(): void {
   const unhiddenExchanges = displayedExchanges.filter((exchange) => !isExchangeHidden(exchange));
+  const connectionExchanges = unhiddenExchanges.filter((exchange) =>
+    matchesConnectionChainFilter(exchange, activeConnectionFilter)
+  );
   const visibleExchanges = activeFieldQuery
-    ? unhiddenExchanges.filter((exchange) => matchesApiFieldQuery(exchange, activeFieldQuery!))
-    : unhiddenExchanges;
+    ? connectionExchanges.filter((exchange) => matchesApiFieldQuery(exchange, activeFieldQuery!))
+    : connectionExchanges;
   renderFieldSidebar(visibleExchanges);
   const hiddenRequestCount = displayedExchanges.length - unhiddenExchanges.length;
   showHidden.hidden = hiddenRequestCount === 0;
@@ -1503,7 +2103,9 @@ function renderDisplayedTraffic(): void {
   if (visibleExchanges.length === 0) {
     emptyState.textContent = activeFieldQuery
       ? "No loaded requests match this field filter."
-      : hiddenRequestCount
+      : activeConnectionFilter
+        ? "No loaded requests match this connection-chain filter."
+        : hiddenRequestCount
         ? "All matching requests are hidden."
         : "No matching API traffic.";
     requestList.replaceChildren(emptyState);
@@ -1563,7 +2165,7 @@ function createExchange(exchange: ApiExchange): HTMLElement {
     sessionManifest ? "Open signed URL" : "Open URL"
   );
   const hideEndpoint = createHideEndpointButton(exchange.request.url);
-  actions.append(copyUrl, ...(openUrl ? [openUrl] : []));
+  actions.append(createStarButton(createApiLogRecord(exchange).id), copyUrl, ...(openUrl ? [openUrl] : []));
   if (sessionManifest) {
     const quotedUrl = quoteShellArgument(sessionManifest.url);
     actions.append(
@@ -1608,6 +2210,7 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   }
 
   article.append(
+    createConnectionDetails(exchange),
     createFieldsDetails(exchange),
     createDetails("Outgoing request", exchange.request.headers, exchange.request.body),
     createDetails("Incoming response", exchange.response.headers, exchange.response.body)

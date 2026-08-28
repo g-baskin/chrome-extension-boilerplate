@@ -16,14 +16,22 @@ import {
   type ProtocolEvent,
   type ProtocolTransport,
 } from "@/lib/protocol-traffic";
+import {
+  createCaptureJourney,
+  readCaptureEndpoint,
+  type CaptureJourney,
+} from "@/lib/capture-journey";
 
 const PROTOCOL_VERSION = "1.3";
 const ATTACHED_TAB_KEY = "apiTrafficAttachedTab";
+const ATTACHED_CONTEXT_KEY = "apiTrafficAttachedContext";
+const LAST_CAPTURE_CONTEXT_KEY = "apiTrafficLastCaptureContext";
 const API_RESOURCE_TYPES = new Set(["Fetch", "XHR"]);
 
 type PendingRequest = {
   tabId: number;
   pageUrl: string;
+  capture?: CaptureJourney;
   requestId: string;
   sessionRequestUrl: string;
   resourceType: string;
@@ -37,6 +45,7 @@ type PendingRequest = {
 const pendingRequests = new Map<string, PendingRequest>();
 const protocolSessions = new Map<string, { url: string; transport: ProtocolTransport }>();
 const capturedTabUrls = new Map<number, string>();
+const capturedTabJourneys = new Map<number, CaptureJourney>();
 let captureOperation: Promise<void> = Promise.resolve();
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
@@ -51,6 +60,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 
 chrome.debugger.onDetach.addListener((source) => {
   if (source.tabId === undefined) return;
+  const journey = capturedTabJourneys.get(source.tabId);
   for (const [key, pending] of pendingRequests) {
     if (pending.tabId === source.tabId) pendingRequests.delete(key);
   }
@@ -58,10 +68,11 @@ chrome.debugger.onDetach.addListener((source) => {
     if (key.startsWith(`${source.tabId}:`)) protocolSessions.delete(key);
   }
   capturedTabUrls.delete(source.tabId);
-  void chrome.storage.session.get(ATTACHED_TAB_KEY).then((stored) => {
-    if (stored[ATTACHED_TAB_KEY] === source.tabId) {
-      return chrome.storage.session.remove(ATTACHED_TAB_KEY);
-    }
+  capturedTabJourneys.delete(source.tabId);
+  void chrome.storage.session.get(ATTACHED_TAB_KEY).then(async (stored) => {
+    if (stored[ATTACHED_TAB_KEY] !== source.tabId) return;
+    if (journey) await chrome.storage.session.set({ [LAST_CAPTURE_CONTEXT_KEY]: journey });
+    await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
   });
 });
 
@@ -78,7 +89,11 @@ async function captureTabNow(
   url: string,
   isCurrent: () => boolean
 ): Promise<void> {
-  const stored = await chrome.storage.session.get(ATTACHED_TAB_KEY);
+  const stored = await chrome.storage.session.get([
+    ATTACHED_TAB_KEY,
+    ATTACHED_CONTEXT_KEY,
+    LAST_CAPTURE_CONTEXT_KEY,
+  ]);
   if (!isCurrent()) return;
 
   const previousTabId = stored[ATTACHED_TAB_KEY];
@@ -86,28 +101,46 @@ async function captureTabNow(
   if (typeof previousTabId === "number" && previousTabId === tabId) {
     if (!inspectable || !isCurrent()) {
       await chrome.debugger.detach({ tabId }).catch(() => undefined);
-      await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+      await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
     }
     return;
   }
 
+  const previousContext = readCaptureEndpoint(
+    stored[ATTACHED_CONTEXT_KEY] ?? stored[LAST_CAPTURE_CONTEXT_KEY]
+  );
   if (typeof previousTabId === "number") {
     await chrome.debugger.detach({ tabId: previousTabId }).catch(() => undefined);
-    await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+    await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
   }
   if (!inspectable || !isCurrent()) return;
 
+  const tab = await chrome.tabs.get(tabId);
+  const pageUrl = redactUrl(url);
+  const journey = createCaptureJourney(
+    {
+      tabId,
+      windowId: tab.windowId,
+      ...(tab.openerTabId === undefined ? {} : { openerTabId: tab.openerTabId }),
+      pageUrl,
+    },
+    previousContext
+  );
   await chrome.debugger.attach({ tabId }, PROTOCOL_VERSION);
   if (!isCurrent()) {
     await chrome.debugger.detach({ tabId }).catch(() => undefined);
     return;
   }
 
-  capturedTabUrls.set(tabId, url);
-  await chrome.storage.session.set({ [ATTACHED_TAB_KEY]: tabId });
+  capturedTabUrls.set(tabId, pageUrl);
+  capturedTabJourneys.set(tabId, journey);
+  await chrome.storage.session.set({
+    [ATTACHED_TAB_KEY]: tabId,
+    [ATTACHED_CONTEXT_KEY]: journey,
+  });
   if (!isCurrent()) {
     await chrome.debugger.detach({ tabId }).catch(() => undefined);
-    await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+    await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
     return;
   }
 
@@ -120,11 +153,11 @@ async function captureTabNow(
     });
     if (!isCurrent()) {
       await chrome.debugger.detach({ tabId }).catch(() => undefined);
-      await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+      await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
     }
   } catch (error: unknown) {
     await chrome.debugger.detach({ tabId }).catch(() => undefined);
-    await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+    await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
     throw error;
   }
 }
@@ -134,15 +167,18 @@ export function stopApiTrafficCapture(): Promise<void> {
 }
 
 async function stopApiTrafficCaptureNow(): Promise<void> {
-  const stored = await chrome.storage.session.get(ATTACHED_TAB_KEY);
+  const stored = await chrome.storage.session.get([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
   const tabId = stored[ATTACHED_TAB_KEY];
+  const journey = readCaptureEndpoint(stored[ATTACHED_CONTEXT_KEY]);
+  if (journey) await chrome.storage.session.set({ [LAST_CAPTURE_CONTEXT_KEY]: journey });
   if (typeof tabId === "number") {
     await chrome.debugger.detach({ tabId }).catch(() => undefined);
   }
-  await chrome.storage.session.remove(ATTACHED_TAB_KEY);
+  await chrome.storage.session.remove([ATTACHED_TAB_KEY, ATTACHED_CONTEXT_KEY]);
   pendingRequests.clear();
   protocolSessions.clear();
   capturedTabUrls.clear();
+  capturedTabJourneys.clear();
 }
 
 function enqueueCaptureOperation(operation: () => Promise<void>): Promise<void> {
@@ -175,6 +211,7 @@ async function handleDebuggerEvent(
     pendingRequests.set(key, {
       tabId,
       pageUrl: capturedTabUrls.get(tabId) ?? "",
+      capture: capturedTabJourneys.get(tabId),
       requestId,
       sessionRequestUrl,
       resourceType: readString(params, "type") ?? "Other",
@@ -195,6 +232,7 @@ async function handleDebuggerEvent(
       await persistProtocol({
         sessionId: requestId,
         pageUrl: capturedTabUrls.get(tabId) ?? "",
+        capture: capturedTabJourneys.get(tabId),
         url: sessionRequestUrl,
         transport: "sse",
         kind: "created",
@@ -273,6 +311,7 @@ async function captureProtocolEvent(
     await persistProtocol({
       sessionId: requestId,
       pageUrl: capturedTabUrls.get(tabId) ?? "",
+      capture: capturedTabJourneys.get(tabId),
       url,
       transport,
       kind: "created",
@@ -305,6 +344,7 @@ async function captureProtocolEvent(
   await persistProtocol({
     sessionId: requestId,
     pageUrl: capturedTabUrls.get(tabId) ?? "",
+    capture: capturedTabJourneys.get(tabId),
     url: session.url,
     transport: session.transport,
     kind,
@@ -380,6 +420,7 @@ async function persistExchange(
   );
   const saved = await saveApiExchange({
     pageUrl: redactUrl(pending.pageUrl),
+    capture: pending.capture,
     resourceType: pending.resourceType,
     transferSize,
     startedAt: pending.startedAt,

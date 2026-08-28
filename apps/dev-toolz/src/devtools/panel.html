@@ -8,14 +8,92 @@
   </head>
   <body>
     <nav class="section-nav" aria-label="Dev Toolz sections">
-      <button id="show-traffic-section" type="button" aria-pressed="true" aria-controls="traffic-section">
+      <button id="show-log-search-section" type="button" aria-pressed="true" aria-controls="log-search-section">
+        Log Search
+      </button>
+      <button id="show-traffic-section" type="button" aria-pressed="false" aria-controls="traffic-section">
         API Traffic
       </button>
       <button id="show-red-team-section" type="button" aria-pressed="false" aria-controls="red-team-section">
         Red Team
       </button>
     </nav>
-    <section id="traffic-section" class="tool-section">
+    <section id="log-search-section" class="tool-section">
+      <header>
+        <div>
+          <h1>Log search</h1>
+          <p>Search stored events and watch new captures appear live.</p>
+        </div>
+        <div class="header-actions">
+          <label>
+            Live capture
+            <select id="log-capture-site" aria-label="Pause or resume live capture for the current site">
+              <option value="" selected>Loading current site…</option>
+            </select>
+          </label>
+        </div>
+      </header>
+      <form id="log-search-form" class="log-search-form">
+        <label class="log-query-label">
+          Search query
+          <input id="log-search-query" type="search" maxlength="2000" placeholder='status=500 checkout' aria-describedby="log-search-help log-search-error" />
+        </label>
+        <label>
+          Source
+          <select id="log-search-source">
+            <option value="">API + Red Team</option>
+            <option value="api">Traffic events</option>
+            <option value="red-team">Red-team protocols</option>
+          </select>
+        </label>
+        <label>
+          Time range
+          <select id="log-search-time">
+            <option value="15m">Last 15 minutes</option>
+            <option value="1h" selected>Last hour</option>
+            <option value="4h">Last 4 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="all">All loaded time</option>
+            <option value="custom">Custom range…</option>
+          </select>
+        </label>
+        <fieldset id="log-custom-time" class="log-custom-time" hidden>
+          <legend>Custom local time range</legend>
+          <label>
+            Earliest
+            <input id="log-search-earliest" type="datetime-local" />
+          </label>
+          <label>
+            Latest
+            <input id="log-search-latest" type="datetime-local" />
+          </label>
+        </fieldset>
+        <button id="log-search-submit" type="submit">Search</button>
+        <button id="log-search-clear" type="button">Clear</button>
+      </form>
+      <p id="log-search-help" class="log-search-help">Use text, quoted phrases, comparisons, <code>EXISTS(field)</code>, <code>CONTAINS</code>, <code>NOT</code>, <code>AND</code>, <code>OR</code>, and parentheses.</p>
+      <p id="log-search-error" class="log-search-error" role="alert"></p>
+      <section class="log-timeline-section" aria-labelledby="log-timeline-heading">
+        <div class="log-results-heading">
+          <h2 id="log-timeline-heading">Event timeline</h2>
+          <p id="log-search-status" role="status" aria-live="polite">Loading stored events…</p>
+        </div>
+        <ol id="log-timeline" class="log-timeline" aria-label="Matching event distribution"></ol>
+      </section>
+      <div class="log-search-workspace">
+        <aside class="log-fields" aria-labelledby="log-fields-heading">
+          <h2 id="log-fields-heading">Available fields</h2>
+          <p>Click a value to add it to the query.</p>
+          <div id="log-field-list"></div>
+        </aside>
+        <section class="log-results" aria-labelledby="log-results-heading">
+          <h2 id="log-results-heading">Matching events</h2>
+          <div id="log-search-results"></div>
+        </section>
+      </div>
+    </section>
+    <section id="traffic-section" class="tool-section" hidden>
     <header>
       <div>
         <h1>API traffic</h1>
@@ -124,6 +202,15 @@
         MIME type
         <input id="filter-mime" type="search" placeholder="application/json" />
       </label>
+      <label>
+        Connection chain
+        <select id="filter-connection">
+          <option value="">All chains</option>
+          <option value="tcp-handshake">TCP handshake observed</option>
+          <option value="quic-handshake">QUIC handshake observed</option>
+          <option value="reused">Reused or setup unavailable</option>
+        </select>
+      </label>
       <button type="submit">Apply</button>
       <button id="reset-filters" type="button">Reset</button>
     </form>
@@ -161,7 +248,7 @@
     </details>
     <div class="traffic-workspace">
       <aside class="fields-sidebar">
-        <details class="fields-panel" open>
+        <details class="fields-panel">
           <summary><span id="fields-heading">Extracted fields</span></summary>
           <div class="fields-panel-content">
             <p id="fields-scope">Loaded results · 0 visible</p>

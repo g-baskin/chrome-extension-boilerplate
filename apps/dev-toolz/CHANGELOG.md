@@ -6,6 +6,150 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.7.16] - 2026-08-28
+
+### Fixed
+
+- DevTools panel registration now runs from the bundled module entrypoint instead of a brittle unbundled public script.
+
+## [1.7.15] - 2026-08-28
+
+### Changed
+
+- Indexed Log Search now runs inside a cancellable Web Worker so history normalization and filtering cannot block DevTools interactions.
+- Common metadata queries use lightweight records during scanning and hydrate full extracted fields only for displayed matches.
+
+## [1.7.14] - 2026-08-28
+
+### Added
+
+- Cross-window capture journeys record tab, window, opener, previous-page, attachment-time, and transition metadata for API and Red Team events.
+- Log Search shows searchable capture-handoff markers and explicitly warns when initial page requests may predate debugger attachment.
+
+### Changed
+
+- Capture now follows focus into newly opened browser windows while ignoring non-inspectable DevTools windows.
+
+## [1.7.13] - 2026-08-28
+
+### Added
+
+- Log Search now queries timestamp-indexed API and Red Team history, then continuously evaluates new captures against the active query.
+- History retention keeps up to 50,000 events per source and prunes bounded oldest batches when extension storage exceeds 250 MB.
+
+### Changed
+
+- Log Search preserves the existing detection syntax while scanning history without loading the full event index into memory.
+
+## [1.7.12] - 2026-08-28
+
+### Changed
+
+- API Traffic domain filters now support `*` wildcards, including patterns such as `*tiktok.com`.
+- API Traffic Extracted fields now starts collapsed to preserve workspace space.
+
+## [1.7.11] - 2026-08-28
+
+### Added
+
+- Individual API Traffic and Red Team events can now be starred from their native views or Log Search; stars persist locally across panel reloads.
+
+## [1.7.10] - 2026-08-28
+
+### Changed
+
+- Log Search field facets now start collapsed so the Available fields sidebar stays compact.
+
+## [1.7.9] - 2026-08-28
+
+### Changed
+
+- Log Search Available fields now groups values and matching-event counts under expandable Splunk-style field facets.
+
+## [1.7.8] - 2026-08-28
+
+### Added
+
+- Log Search detection expressions now support vendor-neutral `NOT`, `AND`, `OR`, grouping, implicit `AND`, `EXISTS(field)`, `field CONTAINS value`, equality, inequality, quoted phrases, and wildcards.
+- Invalid expressions fail closed with actionable errors and zero results; evaluation remains bounded, local-only, and independent of SIEM vendor languages.
+
+## [1.7.7] - 2026-08-28
+
+### Fixed
+
+- Restored the original live append behavior for captured API Traffic and Red Team events while keeping the same captures streaming into Log Search.
+
+## [1.7.6] - 2026-08-28
+
+### Changed
+
+- Real-time capture messages now refresh only Log Search; API Traffic and Red Team remain snapshot-based until their existing manual reload paths run.
+
+## [1.7.5] - 2026-08-28
+
+### Fixed
+
+- Live capture status now resolves directly from the inspected page and local capture settings instead of depending on a background-message round trip that could leave the control loading indefinitely.
+
+## [1.7.4] - 2026-08-28
+
+### Fixed
+
+- Log Search no longer disables live results when either stored-history source fails to load; available history and new captures remain searchable.
+- Added current-site live capture controls directly to Log Search and corrected duplicate Traffic workspace markup.
+
+## [1.7.3] - 2026-08-28
+
+### Added
+
+- Log Search now streams newly captured API and protocol events into the active query, coalesces bursts into one visual update per frame, and retains bounded events captured during initial loading.
+
+## [1.7.2] - 2026-08-28
+
+### Added
+
+- Added a vendor-neutral Boolean detection-expression language with `NOT`, `AND`, `OR`, grouping, equality, inequality, existence, substring, quoted-text, and implicit-AND matching.
+
+## [1.7.1] - 2026-08-28
+
+### Fixed
+
+- Cross-workspace field transfers now include the selected event in the bounded local search cache and reset source/time scopes so the confirmed API or protocol event cannot be silently excluded.
+
+## [1.7.0] - 2026-08-28
+
+### Added
+
+- Added local time presets and validated custom local-time ranges to Log Search.
+- Added traffic events to unified results and confirmed cross-workspace field actions that append unlimited AND filters before opening Log Search.
+- Added `field=*` existence filters for field-name clicks.
+
+## [1.6.0] - 2026-08-28
+
+### Added
+
+- Added a top-level local log search dashboard across API captures and red-team protocol events, with bounded field queries, source and time filters, event distribution, field facets, and expandable evidence.
+
+### Security
+
+- Search parsing is bounded and declarative; it never evaluates input or sends stored traffic off-device.
+
+## [1.5.0] - 2026-08-28
+
+### Added
+
+- Added connection-chain filtering for observed TCP handshakes, observed QUIC handshakes, and reused or unavailable setup timing.
+
+## [1.4.0] - 2026-08-28
+
+### Added
+
+- Added per-request inferred connection chains using HAR timing data, including TCP three-way handshake, TLS, HTTP/3 QUIC, and reused-connection states.
+
+### Security
+
+- Connection chains are explicitly labeled as inferred and never claim browser access to packet flags or connection-close frames.
+
 ## [1.3.1] - 2026-08-28
 
 ### Added
@@ -266,29 +410,29 @@ Dev Toolz can now record and inspect active-tab API traffic before DevTools open
 
 - Initial Dev Toolz Chrome extension with page capture, popup controls, downloads, and extension settings.
 
-[Unreleased]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.23...HEAD
-[1.1.23]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.22...v1.1.23
-[1.1.22]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.21...v1.1.22
-[1.1.21]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.20...v1.1.21
-[1.1.20]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.19...v1.1.20
-[1.1.19]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.18...v1.1.19
-[1.1.18]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.17...v1.1.18
-[1.1.17]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.16...v1.1.17
-[1.1.16]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.15...v1.1.16
-[1.1.15]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.14...v1.1.15
-[1.1.14]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.13...v1.1.14
-[1.1.13]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.12...v1.1.13
-[1.1.12]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.11...v1.1.12
-[1.1.11]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.10...v1.1.11
-[1.1.10]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.9...v1.1.10
-[1.1.9]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.8...v1.1.9
-[1.1.8]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.7...v1.1.8
-[1.1.7]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.6...v1.1.7
-[1.1.6]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.5...v1.1.6
-[1.1.5]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.4...v1.1.5
-[1.1.4]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.3...v1.1.4
-[1.1.3]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.2...v1.1.3
-[1.1.2]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.1...v1.1.2
-[1.1.1]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.1.0...v1.1.1
-[1.1.0]: https://github.com/KenKaiii/kens-chrome-extension/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/KenKaiii/kens-chrome-extension/releases/tag/v1.0.0
+[Unreleased]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.23...HEAD
+[1.1.23]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.22...v1.1.23
+[1.1.22]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.21...v1.1.22
+[1.1.21]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.20...v1.1.21
+[1.1.20]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.19...v1.1.20
+[1.1.19]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.18...v1.1.19
+[1.1.18]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.17...v1.1.18
+[1.1.17]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.16...v1.1.17
+[1.1.16]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.15...v1.1.16
+[1.1.15]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.14...v1.1.15
+[1.1.14]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.13...v1.1.14
+[1.1.13]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.12...v1.1.13
+[1.1.12]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.11...v1.1.12
+[1.1.11]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.10...v1.1.11
+[1.1.10]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.9...v1.1.10
+[1.1.9]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.8...v1.1.9
+[1.1.8]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.7...v1.1.8
+[1.1.7]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.6...v1.1.7
+[1.1.6]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.5...v1.1.6
+[1.1.5]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.4...v1.1.5
+[1.1.4]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.3...v1.1.4
+[1.1.3]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.2...v1.1.3
+[1.1.2]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.1...v1.1.2
+[1.1.1]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/g-baskin/chrome-extension-boilerplate/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/v1.0.0

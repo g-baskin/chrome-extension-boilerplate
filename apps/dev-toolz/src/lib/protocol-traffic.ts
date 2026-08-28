@@ -1,5 +1,7 @@
 import { redactJson, redactUrl } from "./api-traffic";
 import { openTrafficDatabase, PROTOCOL_EVENTS_STORE } from "./traffic-database";
+import { enforceTrafficRetention } from "./traffic-retention";
+import type { CaptureJourney } from "./capture-journey";
 
 export const MAX_PROTOCOL_PAYLOAD_BYTES = 256 * 1024;
 export type ProtocolTransport = "graphql-http" | "websocket" | "sse" | "webtransport";
@@ -14,6 +16,7 @@ export type ProtocolEvent = {
   sequence?: number;
   sessionId: string;
   pageUrl: string;
+  capture?: CaptureJourney;
   url: string;
   transport: ProtocolTransport;
   kind: "created" | "handshake" | "connected" | "frame" | "message" | "error" | "closed";
@@ -119,7 +122,7 @@ export function createProtocolEvent(
 
 export async function saveProtocolEvent(event: ProtocolEvent): Promise<ProtocolEvent> {
   const database = await openTrafficDatabase();
-  return new Promise((resolve, reject) => {
+  const saved = await new Promise<ProtocolEvent>((resolve, reject) => {
     const transaction = database.transaction(PROTOCOL_EVENTS_STORE, "readwrite");
     const request = transaction.objectStore(PROTOCOL_EVENTS_STORE).add(event);
     let sequence: number | null = null;
@@ -134,6 +137,12 @@ export async function saveProtocolEvent(event: ProtocolEvent): Promise<ProtocolE
       reject(transaction.error ?? new Error("Could not save protocol event"));
     };
   });
+  try {
+    await enforceTrafficRetention();
+  } catch (error) {
+    console.warn("Protocol event was saved, but retention maintenance failed", error);
+  }
+  return saved;
 }
 
 export async function getProtocolEvents(

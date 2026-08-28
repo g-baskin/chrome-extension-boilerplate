@@ -63,6 +63,26 @@ describe("API field extraction", () => {
       .some((field) => field.source === "url")).toBe(false);
   });
 
+  it("extracts searchable capture-journey fields", () => {
+    const fields = extractApiFields(exchange({
+      capture: {
+        tabId: 11,
+        windowId: 2,
+        openerTabId: 10,
+        pageUrl: "https://destination.example",
+        attachedAt: "2026-08-28T12:00:00.000Z",
+        previousTabId: 10,
+        previousPageUrl: "https://origin.example/path",
+        transition: "new-window",
+        mayHaveMissedInitialRequests: true,
+      },
+    }));
+    expect(values(fields, "capture.transition")).toEqual(["new-window"]);
+    expect(values(fields, "capture.previous_page_host")).toEqual(["origin.example"]);
+    expect(values(fields, "capture.opener_tab_id")).toEqual(["10"]);
+    expect(values(fields, "capture.initial_requests_may_be_missing")).toEqual(["true"]);
+  });
+
   it("flattens nested JSON and normalizes array positions", () => {
     const fields = extractApiFields(exchange({
       request: { ...exchange().request, body: { kind: "json", value: { user: { roles: ["admin", "editor"] } } } },

@@ -1,5 +1,12 @@
 import { detectMediaKind, saveHarEntry } from "../lib/api-traffic";
 import { sendToBackground } from "../lib/messaging";
+
+chrome.devtools.panels.create(
+  "Dev Toolz",
+  "public/icons/icon-16.png",
+  "src/devtools/panel.html"
+);
+
 let inspectedPageUrl = "";
 let capturePaused = true;
 chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {

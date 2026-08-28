@@ -81,6 +81,377 @@ header p {
   gap: 8px;
 }
 
+.log-search-form {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(150px, 190px) minmax(140px, 180px) auto auto;
+  gap: 8px;
+  align-items: end;
+  padding: 12px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+}
+
+.log-search-form label {
+  display: grid;
+  gap: 4px;
+  color: GrayText;
+  font-size: 11px;
+}
+
+.log-search-form input,
+.log-search-form select {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+  border-radius: 4px;
+  background: Field;
+  color: FieldText;
+  font: inherit;
+}
+
+#log-search-submit {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+#log-search-clear {
+  grid-column: 5;
+  grid-row: 1;
+}
+
+.log-custom-time {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 4px;
+}
+
+.log-custom-time[hidden] {
+  display: none;
+}
+
+.log-custom-time legend {
+  padding: 0 4px;
+  color: GrayText;
+  font-size: 10px;
+}
+
+.log-search-form input:focus-visible,
+.log-search-form select:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 1px;
+}
+
+.log-search-help,
+.log-search-error {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: GrayText;
+  font-size: 11px;
+}
+
+.log-search-error:not(:empty) {
+  color: CanvasText;
+  font-weight: 700;
+}
+
+.log-timeline-section {
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+}
+
+.log-results-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-results-heading h2,
+.log-results-heading p {
+  margin: 0 0 8px;
+}
+
+.log-results-heading p {
+  color: GrayText;
+  font-size: 11px;
+}
+
+.log-timeline {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(18px, 1fr));
+  align-items: end;
+  gap: 3px;
+  min-height: 62px;
+  margin: 0;
+  padding: 6px 8px 0;
+  border-block: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  list-style: none;
+}
+
+.log-timeline li {
+  display: grid;
+  align-items: end;
+  min-width: 0;
+  height: 56px;
+  color: GrayText;
+  font-size: 9px;
+  text-align: center;
+}
+
+.log-timeline li > span:first-child {
+  display: block;
+  width: 100%;
+  max-height: 44px;
+  background: Highlight;
+}
+
+.log-search-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.log-fields {
+  position: sticky;
+  top: 42px;
+  max-height: calc(100vh - 54px);
+  overflow: auto;
+  padding: 12px;
+  border-right: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+}
+
+.log-fields h2,
+.log-results > h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.log-fields > p {
+  margin: 4px 0 10px;
+  color: GrayText;
+  font-size: 10px;
+}
+
+#log-field-list {
+  display: grid;
+}
+
+#log-field-list > p {
+  margin: 8px 0;
+  color: GrayText;
+  font-size: 10px;
+}
+
+.log-field-facet {
+  border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+}
+
+.log-field-facet > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 2px;
+  cursor: pointer;
+  font-size: 10px;
+  list-style-position: inside;
+}
+
+.log-field-facet > summary code {
+  min-width: 0;
+  overflow: hidden;
+  color: LinkText;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-field-facet > summary code::before {
+  display: inline-block;
+  width: 10px;
+  content: "›";
+  transition: transform 120ms ease;
+}
+
+.log-field-facet[open] > summary code::before {
+  transform: rotate(90deg);
+}
+
+.log-field-facet-meta {
+  color: GrayText;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.log-field-values {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 8px;
+  padding: 0 0 0 14px;
+  list-style: none;
+}
+
+.log-field-values button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  text-align: left;
+}
+
+.log-field-values button:hover,
+.log-field-values button:focus-visible {
+  background: color-mix(in srgb, Highlight 12%, transparent);
+  color: LinkText;
+}
+
+.log-field-values button span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-field-values button span:last-child {
+  min-width: 20px;
+  color: GrayText;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.log-results {
+  min-width: 0;
+  padding: 12px;
+}
+
+.log-results > h2 {
+  margin-bottom: 8px;
+}
+
+#log-search-results {
+  display: grid;
+  gap: 8px;
+}
+
+.log-journey-marker {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, Highlight 35%, Canvas);
+  border-radius: 4px;
+  background: color-mix(in srgb, Highlight 10%, Canvas);
+  color: CanvasText;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.log-result {
+  padding: 0;
+}
+
+.log-result-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 12px 6px;
+}
+
+.log-result-title {
+  min-width: 0;
+}
+
+.log-result-heading h3,
+.log-result-heading p,
+.log-result-summary {
+  margin: 0;
+}
+
+.log-result-heading h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 700 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.log-result-heading p,
+.log-result-summary {
+  color: GrayText;
+  font-size: 10px;
+}
+
+.log-result-summary {
+  padding: 0 12px 9px;
+}
+
+.event-star-button {
+  width: 30px;
+  padding: 3px 6px;
+  color: GrayText;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.event-star-button[aria-pressed="true"] {
+  color: color-mix(in srgb, #f5b301 85%, CanvasText);
+}
+
+.log-result dl {
+  display: grid;
+  grid-template-columns: minmax(130px, 220px) minmax(0, 1fr);
+  margin: 0;
+  padding: 0 12px 10px;
+  font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.log-result dt,
+.log-result dd {
+  min-width: 0;
+  margin: 0;
+  padding: 3px 5px;
+  border-top: 1px solid color-mix(in srgb, CanvasText 8%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.log-result dt {
+  color: GrayText;
+}
+
+.log-filter-link {
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.log-filter-link:hover {
+  color: LinkText;
+  text-decoration: underline;
+}
+
+.protocol-log-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 7px 0;
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.log-empty {
+  margin: 0;
+  padding: 24px 12px;
+  border: 1px dashed color-mix(in srgb, CanvasText 24%, transparent);
+  color: GrayText;
+  text-align: center;
+}
+
 #request-count {
   flex: none;
   color: GrayText;
@@ -126,7 +497,7 @@ header p {
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(125px, 1fr) minmax(210px, 2fr) minmax(180px, 2fr) repeat(3, minmax(100px, 1fr)) minmax(160px, 1fr) auto auto;
+  grid-template-columns: minmax(125px, 1fr) minmax(210px, 2fr) minmax(180px, 2fr) repeat(3, minmax(100px, 1fr)) minmax(160px, 1fr) minmax(180px, 1fr) auto auto;
   align-items: end;
   gap: 8px;
   padding: 10px 12px;
@@ -759,6 +1130,18 @@ pre {
   font-weight: 700;
 }
 
+.protocol-event-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-top: 6px;
+}
+
+.protocol-event-row > details {
+  min-width: 0;
+}
+
 .protocol-meta,
 .protocol-url {
   color: GrayText;
@@ -806,6 +1189,41 @@ pre {
   padding: 12px;
 }
 
+.connection-chain ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 12px 8px;
+  list-style: none;
+}
+
+.connection-chain li {
+  display: grid;
+  grid-template-columns: 20px minmax(120px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-height: 28px;
+  border-top: 1px solid color-mix(in srgb, CanvasText 8%, transparent);
+  font-size: 11px;
+}
+
+.connection-direction {
+  color: LinkText;
+  font: 700 15px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-align: center;
+}
+
+.connection-timing,
+.connection-chain p {
+  color: GrayText;
+  font-size: 10px;
+}
+
+.connection-chain p {
+  margin: 0;
+  padding: 0 12px 10px;
+}
+
 .exchange-fields dl {
   display: grid;
   grid-template-columns: minmax(130px, 220px) minmax(0, 1fr);
@@ -840,5 +1258,57 @@ pre {
     position: static;
     max-height: none;
     margin-right: 12px;
+  }
+
+  .log-search-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .log-query-label {
+    grid-column: 1 / -1;
+  }
+
+  #log-search-submit,
+  #log-search-clear {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .log-search-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-fields {
+    position: static;
+    max-height: none;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  }
+}
+
+@media (max-width: 600px) {
+  .log-search-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-query-label {
+    grid-column: auto;
+  }
+
+  .log-custom-time {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-results-heading,
+  .log-result-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .log-results-heading {
+    display: grid;
+  }
+
+  .log-result dl {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

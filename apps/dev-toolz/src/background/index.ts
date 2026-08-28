@@ -154,13 +154,21 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   tabStatusRevisions.delete(tabId);
 });
 
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId !== chrome.windows.WINDOW_ID_NONE) void syncApiTrafficCapture();
+});
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith(API_TRAFFIC_ALARM_PREFIX)) void syncApiTrafficCapture();
 });
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab;
+  const [focused] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (isInspectableUrl(focused?.url ?? "")) return focused;
+  const activeTabs = await chrome.tabs.query({ active: true });
+  return activeTabs
+    .filter((tab) => isInspectableUrl(tab.url ?? ""))
+    .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0];
 }
 
 async function stopSynchronizedApiTrafficCapture(): Promise<void> {

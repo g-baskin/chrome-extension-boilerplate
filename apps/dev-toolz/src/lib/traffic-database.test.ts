@@ -1,9 +1,11 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  API_LOG_TIME_INDEX,
   API_TRAFFIC_STORE,
   openTrafficDatabase,
   PROTOCOL_EVENTS_STORE,
+  PROTOCOL_LOG_TIME_INDEX,
   RACE_FLOWS_STORE,
   TRAFFIC_DATABASE_NAME,
 } from "./traffic-database";
@@ -26,6 +28,9 @@ describe("openTrafficDatabase", () => {
       PROTOCOL_EVENTS_STORE,
       RACE_FLOWS_STORE,
     ]);
+    const transaction = database.transaction([API_TRAFFIC_STORE, PROTOCOL_EVENTS_STORE]);
+    expect([...transaction.objectStore(API_TRAFFIC_STORE).indexNames]).toContain(API_LOG_TIME_INDEX);
+    expect([...transaction.objectStore(PROTOCOL_EVENTS_STORE).indexNames]).toContain(PROTOCOL_LOG_TIME_INDEX);
     database.close();
   });
 
@@ -59,6 +64,9 @@ describe("openTrafficDatabase", () => {
     expect(stored).toMatchObject(original);
     expect([...upgraded.objectStoreNames]).toContain(PROTOCOL_EVENTS_STORE);
     expect([...upgraded.objectStoreNames]).toContain(RACE_FLOWS_STORE);
+    const transaction = upgraded.transaction([API_TRAFFIC_STORE, PROTOCOL_EVENTS_STORE]);
+    expect([...transaction.objectStore(API_TRAFFIC_STORE).indexNames]).toContain(API_LOG_TIME_INDEX);
+    expect([...transaction.objectStore(PROTOCOL_EVENTS_STORE).indexNames]).toContain(PROTOCOL_LOG_TIME_INDEX);
     upgraded.close();
   });
 });

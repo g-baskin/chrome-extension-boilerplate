@@ -1,25 +1,35 @@
 export const TRAFFIC_DATABASE_NAME = "dev-toolz";
-export const TRAFFIC_DATABASE_VERSION = 2;
+export const TRAFFIC_DATABASE_VERSION = 3;
 export const API_TRAFFIC_STORE = "api-traffic";
 export const PROTOCOL_EVENTS_STORE = "protocol-events";
 export const RACE_FLOWS_STORE = "race-flows";
+export const API_LOG_TIME_INDEX = "log-time";
+export const PROTOCOL_LOG_TIME_INDEX = "log-time";
 
 export function openTrafficDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(TRAFFIC_DATABASE_NAME, TRAFFIC_DATABASE_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
-      if (!database.objectStoreNames.contains(API_TRAFFIC_STORE)) {
-        database.createObjectStore(API_TRAFFIC_STORE, {
-          keyPath: "sequence",
-          autoIncrement: true,
-        });
+      const transaction = request.transaction;
+      if (!transaction) return;
+      const apiStore = database.objectStoreNames.contains(API_TRAFFIC_STORE)
+        ? transaction.objectStore(API_TRAFFIC_STORE)
+        : database.createObjectStore(API_TRAFFIC_STORE, {
+            keyPath: "sequence",
+            autoIncrement: true,
+          });
+      if (!apiStore.indexNames.contains(API_LOG_TIME_INDEX)) {
+        apiStore.createIndex(API_LOG_TIME_INDEX, ["startedAt", "sequence"]);
       }
-      if (!database.objectStoreNames.contains(PROTOCOL_EVENTS_STORE)) {
-        database.createObjectStore(PROTOCOL_EVENTS_STORE, {
-          keyPath: "sequence",
-          autoIncrement: true,
-        });
+      const protocolStore = database.objectStoreNames.contains(PROTOCOL_EVENTS_STORE)
+        ? transaction.objectStore(PROTOCOL_EVENTS_STORE)
+        : database.createObjectStore(PROTOCOL_EVENTS_STORE, {
+            keyPath: "sequence",
+            autoIncrement: true,
+          });
+      if (!protocolStore.indexNames.contains(PROTOCOL_LOG_TIME_INDEX)) {
+        protocolStore.createIndex(PROTOCOL_LOG_TIME_INDEX, ["timestamp", "sequence"]);
       }
       if (!database.objectStoreNames.contains(RACE_FLOWS_STORE)) {
         database.createObjectStore(RACE_FLOWS_STORE, { keyPath: "id" });
