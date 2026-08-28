@@ -35,5 +35,9 @@ yarn-error.log*
 *.tsbuildinfo
 
 # GG Coder working files
+.gg/fields-smoke.html
 .gg/generated/
 .gg/plans/
+.gg/screenshots/
+.gg/smoke/
+.gg/uploads/
