@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.7.18] - 2026-08-28
+
+### Security
+
+- Reject messages from foreign senders to prevent unauthorized commands from other extensions.
+- Isolate Race Lab execution from page JavaScript to prevent token exfiltration.
+- Add explicit Content Security Policy to manifest.
+- Expand sensitive field redaction to cover access_token, refresh_token, jwt, and more.
+
 ## [1.7.17] - 2026-08-28
 
 ### Added
