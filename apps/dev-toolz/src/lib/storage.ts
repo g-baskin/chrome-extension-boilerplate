@@ -30,8 +30,8 @@ export interface StorageSchema {
   };
   // Captured Skool pages stored for later downloads
   captureHistory: CapturedPageEntry[];
-  // Add more storage keys here as needed:
-  // myFeature: { ... };
+  // Hostnames excluded from API capture; null means paused until resumed.
+  apiTrafficPauses: Record<string, number | null>;
 }
 
 type StorageKey = keyof StorageSchema;
@@ -189,6 +189,7 @@ export const defaultUserData: StorageSchema["userData"] = {
 };
 
 export const defaultCaptureHistory: StorageSchema["captureHistory"] = [];
+export const defaultApiTrafficPauses: StorageSchema["apiTrafficPauses"] = {};
 
 /**
  * Initialize storage with default values if not set
@@ -208,5 +209,10 @@ export async function initializeStorage(): Promise<void> {
   const captureHistory = await getStorage("captureHistory");
   if (!captureHistory) {
     await setStorage("captureHistory", defaultCaptureHistory);
+  }
+
+  const apiTrafficPauses = await getStorage("apiTrafficPauses");
+  if (!apiTrafficPauses) {
+    await setStorage("apiTrafficPauses", defaultApiTrafficPauses);
   }
 }

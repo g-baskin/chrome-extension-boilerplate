@@ -1,4 +1,11 @@
 export type ApiHeader = { name: string; value: string };
+export type MediaKind =
+  | "manifest"
+  | "video"
+  | "audio"
+  | "segment"
+  | "subtitle"
+  | "key";
 export type ApiBody =
   | { kind: "json"; value: unknown }
   | { kind: "malformed-json"; raw: string; error: string }
@@ -6,7 +13,17 @@ export type ApiBody =
 
 export type ApiTrafficFilters = {
   pageHostname: string | null;
+  analysis: "" | "target" | "focus" | "discovery" | "writes" | "failures" | "videos";
   domain: string;
+  attribution:
+    | ""
+    | "unknown"
+    | "unknown-source"
+    | "unknown-destination"
+    | "no-response"
+    | "page-initiated"
+    | "extension-initiated"
+    | "unknown-initiator";
   method: string;
   status: "" | "failed" | "2xx" | "3xx" | "4xx" | "5xx";
   mimeType: string;
@@ -15,8 +32,14 @@ export type ApiTrafficFilters = {
 export type ApiExchange = {
   sequence?: number;
   pageUrl?: string;
+  resourceType?: string;
+  transferSize?: number;
   startedAt: string;
   durationMs: number;
+  initiator?: {
+    kind: "page" | "extension" | "unknown";
+    origin: string | null;
+  };
   request: {
     method: string;
     url: string;
@@ -38,7 +61,77 @@ const STORE_NAME = "api-traffic";
 const REDACTED = "<redacted>";
 const SENSITIVE_NAME_REGEX =
   /(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key)/i;
+const SENSITIVE_QUERY_NAME_REGEX =
+  /^(authorization|cookie|password|passwd|secret|token|api[_-]?key|session|ctk|sentry_key|signature|sig|policy|key[_-]?pair[_-]?id|x-amz-(credential|signature|security-token)|x-goog-(credential|signature))$/i;
+export const MEDIA_BODY_OMITTED = "<media body omitted; metadata only>";
 
+export function detectMediaKind(
+  resourceType: string | undefined,
+  mimeType: string,
+  rawUrl: string
+): MediaKind | null {
+  const normalizedMimeType = mimeType.toLowerCase();
+  const normalizedResourceType = resourceType?.toLowerCase();
+  const hasMediaContext =
+    normalizedResourceType === "media" ||
+    normalizedMimeType.startsWith("video/") ||
+    normalizedMimeType.startsWith("audio/");
+  let pathname = "";
+  let protocol = "";
+  try {
+    const url = new URL(rawUrl);
+    pathname = url.pathname.toLowerCase();
+    protocol = url.protocol;
+  } catch {
+    pathname = rawUrl.toLowerCase().split(/[?#]/, 1)[0] ?? "";
+  }
+  if (protocol === "blob:" || protocol === "data:") return null;
+
+  if (
+    normalizedMimeType.includes("mpegurl") ||
+    normalizedMimeType.includes("dash+xml") ||
+    normalizedMimeType.includes("vnd.ms-sstr+xml") ||
+    /\.(?:m3u8?|mpd)$/.test(pathname) ||
+    pathname.endsWith(".ism/manifest")
+  ) {
+    return "manifest";
+  }
+  if (
+    /\.key$/.test(pathname) &&
+    (hasMediaContext || normalizedMimeType.includes("application/octet-stream"))
+  ) {
+    return "key";
+  }
+  if (
+    normalizedMimeType.includes("text/vtt") ||
+    normalizedMimeType.includes("ttml+xml") ||
+    /\.(?:vtt|srt|ttml|dfxp)$/.test(pathname) ||
+    pathname.includes("/timedtext")
+  ) {
+    return "subtitle";
+  }
+  if (
+    (/\.ts$/.test(pathname) && hasMediaContext) ||
+    /\.(?:m2ts|m4s|cmfv|cmfa|fmp4)$/.test(pathname) ||
+    pathname.includes("/fragments(") ||
+    pathname.includes("/qualitylevels(")
+  ) {
+    return "segment";
+  }
+  if (
+    normalizedMimeType.startsWith("video/") ||
+    /\.(?:mp4|webm|mov|m4v|ogv|mkv|avi|flv|wmv|3gp)$/.test(pathname)
+  ) {
+    return "video";
+  }
+  if (
+    normalizedMimeType.startsWith("audio/") ||
+    /\.(?:mp3|m4a|aac|ogg|oga|wav|flac|opus)$/.test(pathname)
+  ) {
+    return "audio";
+  }
+  return normalizedResourceType === "media" ? "video" : null;
+}
 export function createApiBody(raw: string, mimeType: string): ApiBody {
   try {
     return { kind: "json", value: redactJson(JSON.parse(raw) as unknown) };
@@ -85,7 +178,9 @@ export function redactUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     for (const name of url.searchParams.keys()) {
-      if (SENSITIVE_NAME_REGEX.test(name)) url.searchParams.set(name, REDACTED);
+      if (SENSITIVE_NAME_REGEX.test(name) || SENSITIVE_QUERY_NAME_REGEX.test(name)) {
+        url.searchParams.set(name, REDACTED);
+      }
     }
     return url.toString();
   } catch {
@@ -165,9 +260,59 @@ export function matchesApiTraffic(
     !mimeFilter ||
     exchange.response.mimeType.toLowerCase().includes(mimeFilter) ||
     exchange.request.mimeType?.toLowerCase().includes(mimeFilter) === true;
+  const sourceHostname = getHostname(exchange.pageUrl);
   const requestHostname = getHostname(exchange.request.url);
   const domainMatches =
     !filters.domain || requestHostname.includes(filters.domain.toLowerCase());
+  const noResponse = exchange.response.status === 0;
+  const initiatorKind = exchange.initiator?.kind ?? "unknown";
+  const isUnknown = !sourceHostname || !requestHostname;
+  const isCrossDomain =
+    Boolean(sourceHostname) &&
+    Boolean(requestHostname) &&
+    !sharesSite(sourceHostname, requestHostname);
+  const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(exchange.request.method);
+  const isFailure = noResponse || exchange.response.status >= 400;
+  const isDiscovery = isCrossDomain || isUnknown || initiatorKind === "extension";
+  const responseMimeType = exchange.response.mimeType.toLowerCase();
+  const mediaKind = detectMediaKind(
+    exchange.resourceType,
+    exchange.response.mimeType,
+    exchange.request.url
+  );
+  const isStaticAsset =
+    responseMimeType.startsWith("text/css") ||
+    responseMimeType.startsWith("image/") ||
+    responseMimeType.startsWith("font/") ||
+    responseMimeType.includes("font") ||
+    responseMimeType.startsWith("audio/") ||
+    responseMimeType.startsWith("video/");
+  const isExtensionTraffic =
+    initiatorKind === "extension" ||
+    getProtocol(exchange.request.url) === "chrome-extension:" ||
+    exchange.request.headers.some((header) =>
+      ["extension-major", "extension-version"].includes(header.name.toLowerCase())
+    );
+  const isTargetSignal =
+    !isStaticAsset && !isExtensionTraffic && !isSentryTelemetry(exchange.request.url);
+  const analysisMatches =
+    !filters.analysis ||
+    (filters.analysis === "target" && isTargetSignal) ||
+    (filters.analysis === "focus" && (isWrite || isFailure || isDiscovery)) ||
+    (filters.analysis === "discovery" && isDiscovery) ||
+    (filters.analysis === "writes" && isWrite) ||
+    (filters.analysis === "failures" && isFailure) ||
+    (filters.analysis === "videos" && mediaKind !== null);
+  const attributionMatches =
+    !filters.attribution ||
+    (filters.attribution === "unknown" &&
+      (!sourceHostname || !requestHostname || noResponse || initiatorKind === "unknown")) ||
+    (filters.attribution === "unknown-source" && !sourceHostname) ||
+    (filters.attribution === "unknown-destination" && !requestHostname) ||
+    (filters.attribution === "no-response" && noResponse) ||
+    (filters.attribution === "page-initiated" && initiatorKind === "page") ||
+    (filters.attribution === "extension-initiated" && initiatorKind === "extension") ||
+    (filters.attribution === "unknown-initiator" && initiatorKind === "unknown");
   const status = exchange.response.status;
   const statusMatches =
     !filters.status ||
@@ -176,7 +321,15 @@ export function matchesApiTraffic(
     (filters.status === "3xx" && status >= 300 && status < 400) ||
     (filters.status === "4xx" && status >= 400 && status < 500) ||
     (filters.status === "5xx" && status >= 500 && status < 600);
-  return pageMatches && methodMatches && mimeMatches && domainMatches && statusMatches;
+  return (
+    pageMatches &&
+    analysisMatches &&
+    methodMatches &&
+    mimeMatches &&
+    domainMatches &&
+    attributionMatches &&
+    statusMatches
+  );
 }
 
 function getHostname(rawUrl: string | undefined): string {
@@ -185,6 +338,48 @@ function getHostname(rawUrl: string | undefined): string {
     return new URL(rawUrl).hostname.toLowerCase();
   } catch {
     return "";
+  }
+}
+
+export function sharesSite(leftHostname: string, rightHostname: string): boolean {
+  const left = leftHostname.toLowerCase();
+  const right = rightHostname.toLowerCase();
+  if (left === right) return true;
+  if (isIpAddress(left) || isIpAddress(right)) return false;
+  // simplification: handles common country-code suffixes; use a Public Suffix List for full coverage.
+  return siteSuffix(left) === siteSuffix(right);
+}
+
+function siteSuffix(hostname: string): string {
+  const labels = hostname.split(".");
+  const secondLevel = labels[labels.length - 2];
+  const countryCodeSuffix =
+    labels[labels.length - 1]?.length === 2 &&
+    secondLevel !== undefined &&
+    ["ac", "co", "com", "edu", "gov", "net", "org"].includes(secondLevel);
+  return labels.slice(countryCodeSuffix ? -3 : -2).join(".");
+}
+
+function isIpAddress(hostname: string): boolean {
+  return hostname.includes(":") || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname);
+}
+
+function getProtocol(rawUrl: string): string {
+  try {
+    return new URL(rawUrl).protocol;
+  } catch {
+    return "";
+  }
+}
+
+function isSentryTelemetry(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    const sentryIngestHost =
+      url.hostname === "ingest.sentry.io" || url.hostname.endsWith(".ingest.sentry.io");
+    return sentryIngestHost && url.pathname.includes("/envelope/");
+  } catch {
+    return false;
   }
 }
 
@@ -212,6 +407,55 @@ export async function countApiTraffic(): Promise<number> {
   });
 }
 
+export async function countApiTrafficForPage(pageHostname: string): Promise<number> {
+  const normalizedHostname = pageHostname.toLowerCase();
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    let count = 0;
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const request = transaction.objectStore(STORE_NAME).openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const exchange = cursor.value as ApiExchange;
+      if (getHostname(exchange.pageUrl) === normalizedHostname) count += 1;
+      cursor.continue();
+    };
+    transaction.oncomplete = () => {
+      database.close();
+      resolve(count);
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Could not count site API traffic"));
+    };
+  });
+}
+
+export async function clearApiTrafficForPage(pageHostname: string): Promise<void> {
+  const normalizedHostname = pageHostname.toLowerCase();
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const request = transaction.objectStore(STORE_NAME).openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const exchange = cursor.value as ApiExchange;
+      if (getHostname(exchange.pageUrl) === normalizedHostname) cursor.delete();
+      cursor.continue();
+    };
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? new Error("Could not clear site API traffic"));
+    };
+  });
+}
+
 export async function clearApiTraffic(): Promise<void> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
@@ -232,40 +476,66 @@ export function saveHarEntry(
   entry: chrome.devtools.network.Request,
   pageUrl: string
 ): Promise<ApiExchange> {
+  const mimeType = entry.response.content.mimeType;
+  const resourceType =
+    typeof entry._resourceType === "string" ? entry._resourceType : undefined;
+  const mediaKind = detectMediaKind(resourceType, mimeType, entry.request.url);
+  const chromeTransferSize = (entry.response as unknown as Record<string, unknown>)[
+    "_transferSize"
+  ];
+  const transferSize =
+    typeof chromeTransferSize === "number" && chromeTransferSize >= 0
+      ? chromeTransferSize
+      : entry.response.bodySize >= 0
+        ? entry.response.bodySize
+        : undefined;
+
   return new Promise((resolve, reject) => {
+    const saveContent = (content: string, encoding: string): void => {
+      const postData = entry.request.postData;
+      let requestBody: ApiBody | null = null;
+      if (!mediaKind && postData && "text" in postData && typeof postData.text === "string") {
+        requestBody = createRequestBody(postData.text, postData.mimeType);
+      } else if (
+        !mediaKind &&
+        postData &&
+        "params" in postData &&
+        Array.isArray(postData.params)
+      ) {
+        requestBody = createFormBody(
+          postData.params.map((param) => [param.name, param.value ?? ""])
+        );
+      }
+      const exchange: ApiExchange = {
+        pageUrl: redactUrl(pageUrl),
+        resourceType,
+        transferSize,
+        startedAt: entry.startedDateTime,
+        initiator: { kind: "unknown", origin: null },
+        durationMs: entry.time,
+        request: {
+          method: entry.request.method,
+          url: redactUrl(entry.request.url),
+          mimeType: postData?.mimeType ?? null,
+          headers: redactHeaders(entry.request.headers),
+          body: requestBody,
+        },
+        response: {
+          status: entry.response.status,
+          statusText: entry.response.statusText,
+          mimeType,
+          headers: redactHeaders(entry.response.headers),
+          body: mediaKind
+            ? { kind: "text", raw: MEDIA_BODY_OMITTED }
+            : createApiBody(decodeContent(content, encoding), mimeType),
+        },
+      };
+      void saveApiExchange(exchange).then(resolve, reject);
+    };
+
     try {
-      entry.getContent((content, encoding) => {
-        const mimeType = entry.response.content.mimeType;
-        const postData = entry.request.postData;
-        let requestBody: ApiBody | null = null;
-        if (postData && "text" in postData && typeof postData.text === "string") {
-          requestBody = createRequestBody(postData.text, postData.mimeType);
-        } else if (postData && "params" in postData) {
-          requestBody = createFormBody(
-            postData.params.map((param) => [param.name, param.value ?? ""])
-          );
-        }
-        const exchange: ApiExchange = {
-          pageUrl: redactUrl(pageUrl),
-          startedAt: entry.startedDateTime,
-          durationMs: entry.time,
-          request: {
-            method: entry.request.method,
-            url: redactUrl(entry.request.url),
-            mimeType: postData?.mimeType ?? null,
-            headers: redactHeaders(entry.request.headers),
-            body: requestBody,
-          },
-          response: {
-            status: entry.response.status,
-            statusText: entry.response.statusText,
-            mimeType,
-            headers: redactHeaders(entry.response.headers),
-            body: createApiBody(decodeContent(content, encoding), mimeType),
-          },
-        };
-        void saveApiExchange(exchange).then(resolve, reject);
-      });
+      if (mediaKind) saveContent("", "");
+      else entry.getContent(saveContent);
     } catch (error: unknown) {
       reject(error);
     }

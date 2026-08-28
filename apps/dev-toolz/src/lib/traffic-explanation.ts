@@ -1,4 +1,4 @@
-import type { ApiExchange } from "./api-traffic";
+import { sharesSite, type ApiExchange } from "./api-traffic";
 
 export type TrafficExplanation = {
   summary: string;
@@ -8,9 +8,10 @@ export type TrafficExplanation = {
 };
 
 export function explainTraffic(exchange: ApiExchange): TrafficExplanation {
-  const destination = getHostname(exchange.request.url) ?? "unknown destination";
+  const destinationHost = getHostname(exchange.request.url);
+  const destination = destinationHost ?? "unknown destination";
   const pageHost = getHostname(exchange.pageUrl ?? "");
-  const external = pageHost ? !sharesSite(pageHost, destination) : null;
+  const external = pageHost && destinationHost ? !sharesSite(pageHost, destinationHost) : null;
   const action = explainMethod(exchange.request.method);
   const outcome = explainStatus(exchange.response.status);
   const timing =
@@ -22,7 +23,7 @@ export function explainTraffic(exchange: ApiExchange): TrafficExplanation {
       ? ` This left the current site's domain and contacted ${destination}.`
       : external === false
         ? ` This stayed within the current site's domain.`
-        : ` The originating page domain was unavailable.`;
+        : ` Domain attribution was unavailable.`;
 
   return {
     summary: `${action} ${outcome.text}${timing}${destinationNote}`,
@@ -78,14 +79,4 @@ function getHostname(rawUrl: string): string | null {
   } catch {
     return null;
   }
-}
-
-function sharesSite(leftHost: string, rightHost: string): boolean {
-  if (leftHost === rightHost) return true;
-  // simplification: compare the final two labels; use a Public Suffix List for complex suffixes.
-  return siteSuffix(leftHost) === siteSuffix(rightHost);
-}
-
-function siteSuffix(hostname: string): string {
-  return hostname.split(".").slice(-2).join(".");
 }

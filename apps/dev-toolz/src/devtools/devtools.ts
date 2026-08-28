@@ -1,8 +1,13 @@
 import { downloadDataAsFile } from "../lib/download";
 import { explainTraffic } from "../lib/traffic-explanation";
+import { sendToBackground } from "../lib/messaging";
+import type { ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
 import {
   clearApiTraffic,
+  clearApiTrafficForPage,
   countApiTraffic,
+  countApiTrafficForPage,
+  detectMediaKind,
   getAllApiTraffic,
   getApiTrafficPage,
   matchesApiTraffic,
@@ -10,12 +15,20 @@ import {
   type ApiExchange,
   type ApiHeader,
   type ApiTrafficFilters,
+  type MediaKind,
 } from "../lib/api-traffic";
 
 const JSON_TOKEN_REGEX =
   /("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"\s*:)|("(?:\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
 const PAGE_SIZE = 200;
 const DUPLICATE_WINDOW_MS = 10_000;
+const PAUSE_DURATIONS = {
+  resume: 0,
+  pause5: 300_000,
+  pause15: 900_000,
+  pause60: 3_600_000,
+  pauseUntilResumed: null,
+} as const;
 
 interface TrafficGroup {
   exchanges: [ApiExchange, ...ApiExchange[]];
@@ -29,10 +42,15 @@ const requestCount = requireElement("request-count");
 const clearResponses = requireButton("clear-responses");
 const exportResponses = requireButton("export-responses");
 const groupDuplicates = requireButton("group-duplicates");
+const groupSiteDuplicates = requireButton("group-site-duplicates");
+const showHidden = requireButton("show-hidden");
 const loadOlder = requireButton("load-older");
 const filterForm = requireForm("traffic-filters");
+const captureSite = requireSelect("capture-site");
 const scopeFilter = requireSelect("filter-scope");
+const analysisFilter = requireSelect("filter-analysis");
 const domainFilter = requireInput("filter-domain");
+const routeFilter = requireSelect("filter-route");
 const methodFilter = requireSelect("filter-method");
 const statusFilter = requireSelect("filter-status");
 const mimeFilter = requireInput("filter-mime");
@@ -42,7 +60,9 @@ let oldestSequence: number | null = null;
 let currentPageHostname = "";
 let activeFilters = readFilters();
 let displayedExchanges: ApiExchange[] = [];
-let groupingEnabled = false;
+let groupingMode: "nearby" | "site" | null = null;
+const hiddenEndpoints = new Set<string>();
+const hiddenMediaStreams = new Set<string>();
 
 void initializePanel();
 
@@ -50,11 +70,19 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   if (!isCapturedMessage(message)) return false;
   totalCount += 1;
   updateCount();
+  updateScopeActions();
   if (matchesApiTraffic(message.payload, activeFilters)) {
     displayedExchanges.unshift(message.payload);
-    if (groupingEnabled) renderDisplayedTraffic();
+    if (
+      groupingMode ||
+      hiddenEndpoints.size > 0 ||
+      hiddenMediaStreams.size > 0 ||
+      analysisFilter.value === "videos"
+    ) {
+      renderDisplayedTraffic();
+    }
     else requestList.prepend(createExchange(message.payload));
-    updateGroupingButton();
+    updateGroupingButtons();
   }
   return false;
 });
@@ -63,45 +91,91 @@ exportResponses.addEventListener("click", async () => {
   exportResponses.disabled = true;
   exportResponses.textContent = "Exporting…";
   try {
+    const currentSiteOnly = scopeFilter.value === "current";
+    const pageHostname = currentPageHostname;
     // simplification: export materializes the database; stream chunks if exports outgrow memory.
-    const exchanges = await getAllApiTraffic();
+    const storedExchanges = await getAllApiTraffic();
+    const exchanges = currentSiteOnly
+      ? storedExchanges.filter((exchange) => matchesSite(exchange, pageHostname))
+      : storedExchanges;
+    const scope = currentSiteOnly ? pageHostname : "all-sites";
     downloadDataAsFile(
-      "dev-toolz-api-traffic.json",
+      `dev-toolz-${scope}-api-traffic.json`,
       JSON.stringify(exchanges, null, 2),
       "application/json"
     );
   } finally {
-    exportResponses.disabled = totalCount === 0;
-    exportResponses.textContent = "Export all";
+    updateScopeActions();
   }
 });
 
 clearResponses.addEventListener("click", async () => {
-  await clearApiTraffic();
-  totalCount = 0;
-  oldestSequence = null;
-  displayedExchanges = [];
-  updateCount();
-  exportResponses.disabled = true;
-  loadOlder.hidden = true;
-  emptyState.textContent = "Capturing active-tab API traffic automatically…";
-  requestList.replaceChildren(emptyState);
-  updateGroupingButton();
+  clearResponses.disabled = true;
+  const currentSiteOnly = scopeFilter.value === "current";
+  const pageHostname = currentPageHostname;
+  let affectedCount: number;
+  try {
+    affectedCount = currentSiteOnly
+      ? await countApiTrafficForPage(pageHostname)
+      : await countApiTraffic();
+  } catch {
+    showClearFailure();
+    return;
+  }
+  if (affectedCount === 0) {
+    updateScopeActions();
+    return;
+  }
+  const scope = currentSiteOnly ? pageHostname : "all sites";
+  if (!window.confirm(`Permanently clear ${affectedCount} exchanges for ${scope}?`)) {
+    updateScopeActions();
+    return;
+  }
+
+  try {
+    if (currentSiteOnly) await clearApiTrafficForPage(pageHostname);
+    else await clearApiTraffic();
+    totalCount = await countApiTraffic();
+    updateCount();
+    await resetDisplayedTraffic();
+  } catch {
+    showClearFailure();
+    return;
+  }
+  updateScopeActions();
 });
 
 groupDuplicates.addEventListener("click", () => {
-  groupingEnabled = !groupingEnabled;
-  groupDuplicates.setAttribute("aria-pressed", String(groupingEnabled));
+  groupingMode = groupingMode === "nearby" ? null : "nearby";
+  updateGroupingButtons();
   renderDisplayedTraffic();
-  updateGroupingButton();
+});
+
+groupSiteDuplicates.addEventListener("click", () => {
+  groupingMode = groupingMode === "site" ? null : "site";
+  updateGroupingButtons();
+  void resetDisplayedTraffic();
+});
+
+showHidden.addEventListener("click", () => {
+  hiddenEndpoints.clear();
+  hiddenMediaStreams.clear();
+  renderDisplayedTraffic();
 });
 
 loadOlder.addEventListener("click", () => {
   void loadNextPage();
 });
 
+captureSite.addEventListener("change", () => {
+  void updateCapturePause();
+});
+
 scopeFilter.addEventListener("change", () => {
+  if (scopeFilter.value !== "current" && groupingMode === "site") groupingMode = null;
   activeFilters = readFilters();
+  updateScopeActions();
+  updateGroupingButtons();
   void resetDisplayedTraffic();
 });
 
@@ -119,22 +193,41 @@ resetFilters.addEventListener("click", () => {
 
 chrome.devtools.network.onNavigated.addListener((url) => {
   currentPageHostname = getHostname(url);
+  updateScopeActions();
+  void refreshCaptureStatus();
   if (scopeFilter.value === "current") {
     activeFilters = readFilters();
     void resetDisplayedTraffic();
   }
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.apiTrafficPauses) void refreshCaptureStatus();
+});
+
 async function initializePanel(): Promise<void> {
   currentPageHostname = await getInspectedPageHostname();
   activeFilters = readFilters();
+  await refreshCaptureStatus();
   totalCount = await countApiTraffic();
   updateCount();
-  exportResponses.disabled = totalCount === 0;
+  updateScopeActions();
   await loadNextPage();
 }
 
 async function loadNextPage(): Promise<void> {
+  if (groupingMode === "site") {
+    // simplification: site grouping materializes history; move grouping into IndexedDB if it grows slow.
+    const storedExchanges = await getAllApiTraffic();
+    displayedExchanges = storedExchanges.filter((exchange) =>
+      matchesApiTraffic(exchange, activeFilters)
+    );
+    loadOlder.hidden = true;
+    renderDisplayedTraffic();
+    updateGroupingButtons();
+    return;
+  }
+
   loadOlder.disabled = true;
   const page = await getApiTrafficPage(oldestSequence, PAGE_SIZE + 1, activeFilters);
   const exchanges = page.slice(0, PAGE_SIZE);
@@ -144,7 +237,7 @@ async function loadNextPage(): Promise<void> {
   loadOlder.hidden = page.length <= PAGE_SIZE;
   loadOlder.disabled = false;
   renderDisplayedTraffic();
-  updateGroupingButton();
+  updateGroupingButtons();
 }
 
 async function resetDisplayedTraffic(): Promise<void> {
@@ -157,10 +250,27 @@ async function resetDisplayedTraffic(): Promise<void> {
 }
 
 function readFilters(): ApiTrafficFilters {
+  const analysis = analysisFilter.value;
+  const attribution = routeFilter.value;
   const status = statusFilter.value;
   return {
     pageHostname: scopeFilter.value === "current" ? currentPageHostname : null,
+    analysis: ["target", "focus", "discovery", "writes", "failures", "videos"].includes(
+      analysis
+    )
+      ? (analysis as ApiTrafficFilters["analysis"])
+      : "",
     domain: domainFilter.value.trim(),
+    attribution:
+      attribution === "unknown" ||
+      attribution === "unknown-source" ||
+      attribution === "unknown-destination" ||
+      attribution === "no-response" ||
+      attribution === "page-initiated" ||
+      attribution === "extension-initiated" ||
+      attribution === "unknown-initiator"
+        ? attribution
+        : "",
     method: methodFilter.value,
     status:
       status === "failed" || /^[2-5]xx$/.test(status)
@@ -189,18 +299,121 @@ function getHostname(rawUrl: string): string {
   }
 }
 
+function getEndpointKey(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+async function refreshCaptureStatus(): Promise<void> {
+  const response = await sendToBackground("GET_API_CAPTURE_STATUS", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+  });
+  if (response.success && response.data) renderCaptureStatus(response.data);
+  else renderCaptureUnavailable();
+}
+
+async function updateCapturePause(): Promise<void> {
+  const action = captureSite.value;
+  if (!Object.prototype.hasOwnProperty.call(PAUSE_DURATIONS, action)) return;
+  const durationMs = PAUSE_DURATIONS[action as keyof typeof PAUSE_DURATIONS];
+  captureSite.disabled = true;
+  const response = await sendToBackground("SET_API_CAPTURE_PAUSE", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+    durationMs,
+  });
+  if (response.success && response.data) renderCaptureStatus(response.data);
+  else renderCaptureUnavailable();
+}
+
+function renderCaptureStatus(status: ApiTrafficPauseStatus): void {
+  const statusText = status.hostname
+    ? status.paused
+      ? status.pausedUntil === null
+        ? `Paused: ${status.hostname}`
+        : `Paused until ${new Date(status.pausedUntil).toLocaleTimeString([], {
+            hour: "numeric",
+            minute: "2-digit",
+          })}`
+      : `Capturing: ${status.hostname}`
+    : "No website selected";
+  const options = [createOption("", statusText)];
+  if (status.paused) options.push(createOption("resume", "Resume this site"));
+  else if (status.hostname) {
+    options.push(
+      createOption("pause5", "Pause site for 5 minutes"),
+      createOption("pause15", "Pause site for 15 minutes"),
+      createOption("pause60", "Pause site for 1 hour"),
+      createOption("pauseUntilResumed", "Pause until resumed")
+    );
+  }
+  captureSite.replaceChildren(...options);
+  captureSite.disabled = !status.hostname;
+}
+
+function renderCaptureUnavailable(): void {
+  captureSite.replaceChildren(createOption("", "Capture controls unavailable"));
+  captureSite.disabled = true;
+}
+
+function createOption(value: string, label: string): HTMLOptionElement {
+  const option = document.createElement("option");
+  option.value = value;
+  option.textContent = label;
+  return option;
+}
+
+function matchesSite(exchange: ApiExchange, pageHostname: string): boolean {
+  return getHostname(exchange.pageUrl ?? "") === pageHostname;
+}
+
+function showClearFailure(): void {
+  clearResponses.textContent = "Clear failed";
+  window.setTimeout(updateScopeActions, 1500);
+}
+
+function updateScopeActions(): void {
+  const currentSiteOnly = scopeFilter.value === "current";
+  const unavailable = totalCount === 0 || (currentSiteOnly && !currentPageHostname);
+  exportResponses.textContent = currentSiteOnly ? "Export current site" : "Export all";
+  clearResponses.textContent = currentSiteOnly ? "Clear current site" : "Clear all";
+  exportResponses.disabled = unavailable;
+  clearResponses.disabled = unavailable;
+}
+
 function renderDisplayedTraffic(): void {
-  if (displayedExchanges.length === 0) {
-    emptyState.textContent = "No matching API traffic.";
+  const visibleExchanges = displayedExchanges.filter((exchange) => !isExchangeHidden(exchange));
+  const hiddenRequestCount = displayedExchanges.length - visibleExchanges.length;
+  showHidden.hidden = hiddenRequestCount === 0;
+  showHidden.textContent = `Show hidden (${hiddenRequestCount})`;
+
+  if (visibleExchanges.length === 0) {
+    emptyState.textContent = hiddenRequestCount
+      ? "All matching requests are hidden."
+      : "No matching API traffic.";
     requestList.replaceChildren(emptyState);
     return;
   }
 
-  const items = groupingEnabled ? createTrafficGroups(displayedExchanges) : displayedExchanges;
+  const videoMode = analysisFilter.value === "videos";
+  const items = videoMode
+    ? createMediaGroups(visibleExchanges)
+    : groupingMode
+      ? createTrafficGroups(
+          visibleExchanges,
+          groupingMode === "nearby" ? DUPLICATE_WINDOW_MS : null
+        )
+      : visibleExchanges;
   requestList.replaceChildren(
     ...items.map((item) =>
       isTrafficGroup(item) && item.exchanges.length > 1
-        ? createGroup(item)
+        ? createGroup(
+            item,
+            videoMode ? "stream" : groupingMode === "site" ? "site-history" : "nearby"
+          )
         : createExchange(isTrafficGroup(item) ? item.exchanges[0] : item)
     )
   );
@@ -211,7 +424,11 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   const heading = document.createElement("h2");
   heading.textContent = `${exchange.request.method} ${exchange.request.url}`;
   heading.title = exchange.request.url;
-  article.appendChild(heading);
+  const headingRow = document.createElement("div");
+  headingRow.className = "exchange-heading";
+  const hideEndpoint = createHideEndpointButton(exchange.request.url);
+  headingRow.append(heading, hideEndpoint);
+  article.appendChild(headingRow);
 
   const summary = document.createElement("p");
   summary.className = "exchange-summary";
@@ -219,11 +436,20 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   const time = Number.isNaN(startedAt.getTime())
     ? exchange.startedAt
     : startedAt.toLocaleTimeString();
+  const mediaKind = detectMediaKind(
+    exchange.resourceType,
+    exchange.response.mimeType,
+    exchange.request.url
+  );
   summary.textContent =
     `${time} · ← ${exchange.response.status} ${exchange.response.statusText}` +
     ` · ${exchange.response.mimeType || "unknown type"}` +
+    (mediaKind ? ` · Media: ${formatMediaKind(mediaKind)}` : "") +
+    (mediaKind && exchange.transferSize !== undefined
+      ? ` · ${formatByteSize(exchange.transferSize)}`
+      : "") +
     ` · ${Math.round(exchange.durationMs)} ms`;
-  article.appendChild(summary);
+  article.append(summary, createTrafficRoute(exchange));
 
   const explanation = explainTraffic(exchange);
   const explanationText = document.createElement("p");
@@ -246,7 +472,10 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   return article;
 }
 
-function createTrafficGroups(exchanges: ApiExchange[]): Array<ApiExchange | TrafficGroup> {
+function createTrafficGroups(
+  exchanges: ApiExchange[],
+  duplicateWindowMs: number | null
+): Array<ApiExchange | TrafficGroup> {
   const items: Array<ApiExchange | TrafficGroup> = [];
   const latestGroups = new Map<string, TrafficGroup>();
 
@@ -256,8 +485,9 @@ function createTrafficGroups(exchanges: ApiExchange[]): Array<ApiExchange | Traf
     const latestGroup = latestGroups.get(key);
     if (
       latestGroup &&
-      Number.isFinite(startedAt) &&
-      Math.abs(latestGroup.latestStartedAt - startedAt) <= DUPLICATE_WINDOW_MS
+      (duplicateWindowMs === null ||
+        (Number.isFinite(startedAt) &&
+          Math.abs(latestGroup.latestStartedAt - startedAt) <= duplicateWindowMs))
     ) {
       latestGroup.exchanges.push(exchange);
       continue;
@@ -270,7 +500,80 @@ function createTrafficGroups(exchanges: ApiExchange[]): Array<ApiExchange | Traf
   return items;
 }
 
-function createGroup(group: TrafficGroup): HTMLDetailsElement {
+function createMediaGroups(exchanges: ApiExchange[]): Array<ApiExchange | TrafficGroup> {
+  const items: Array<ApiExchange | TrafficGroup> = [];
+  const groups = new Map<string, TrafficGroup>();
+
+  for (const exchange of exchanges) {
+    const mediaKind = detectMediaKind(
+      exchange.resourceType,
+      exchange.response.mimeType,
+      exchange.request.url
+    );
+    if (!mediaKind) {
+      items.push(exchange);
+      continue;
+    }
+
+    const key = getMediaStreamKey(exchange, mediaKind);
+    const group = groups.get(key);
+    if (group) {
+      group.exchanges.push(exchange);
+      continue;
+    }
+
+    const nextGroup: TrafficGroup = {
+      exchanges: [exchange],
+      key,
+      latestStartedAt: Date.parse(exchange.startedAt),
+    };
+    groups.set(key, nextGroup);
+    items.push(nextGroup);
+  }
+  return items;
+}
+
+function getMediaStreamKey(exchange: ApiExchange, mediaKind: MediaKind): string {
+  const endpointKey = getEndpointKey(exchange.request.url);
+  if (mediaKind === "video" || mediaKind === "audio") return endpointKey;
+  try {
+    const url = new URL(exchange.request.url);
+    const directory = url.pathname.slice(0, url.pathname.lastIndexOf("/") + 1);
+    return `${url.origin}${directory}`;
+  } catch {
+    return endpointKey;
+  }
+}
+
+function isExchangeHidden(exchange: ApiExchange): boolean {
+  if (hiddenEndpoints.has(getEndpointKey(exchange.request.url))) return true;
+  const mediaKind = detectMediaKind(
+    exchange.resourceType,
+    exchange.response.mimeType,
+    exchange.request.url
+  );
+  return mediaKind
+    ? hiddenMediaStreams.has(getMediaStreamKey(exchange, mediaKind))
+    : false;
+}
+
+function formatMediaKind(mediaKind: MediaKind): string {
+  if (mediaKind === "manifest") return "stream manifest";
+  if (mediaKind === "subtitle") return "subtitles";
+  if (mediaKind === "key") return "encryption key";
+  return mediaKind;
+}
+
+function formatByteSize(bytes: number): string {
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function createGroup(
+  group: TrafficGroup,
+  groupLabel: "nearby" | "site-history" | "stream"
+): HTMLDetailsElement {
   const details = document.createElement("details");
   details.className = "duplicate-group";
   details.style.setProperty("--group-hue", String(hashGroupKey(group.key) % 360));
@@ -278,10 +581,16 @@ function createGroup(group: TrafficGroup): HTMLDetailsElement {
   const summary = document.createElement("summary");
   const label = document.createElement("span");
   label.className = "duplicate-group-label";
-  label.textContent = `${group.exchanges[0].request.method} ${group.exchanges[0].request.url}`;
+  const firstExchange = group.exchanges[0];
+  label.textContent = `${firstExchange.request.method} ${formatTrafficRoute(firstExchange)}`;
+  label.title = firstExchange.request.url;
   const count = document.createElement("strong");
-  count.textContent = `${group.exchanges.length} nearby requests`;
-  summary.append(label, count);
+  count.textContent = `${group.exchanges.length} ${groupLabel} requests`;
+  const hideEndpoint =
+    groupLabel === "stream"
+      ? createHideStreamButton(group.key)
+      : createHideEndpointButton(firstExchange.request.url);
+  summary.append(label, count, hideEndpoint);
   details.appendChild(summary);
 
   const items = document.createElement("div");
@@ -291,14 +600,54 @@ function createGroup(group: TrafficGroup): HTMLDetailsElement {
   return details;
 }
 
-function updateGroupingButton(): void {
-  const duplicateCount = createTrafficGroups(displayedExchanges).filter(
-    (item) => isTrafficGroup(item) && item.exchanges.length > 1
-  ).length;
-  groupDuplicates.disabled = duplicateCount === 0 && !groupingEnabled;
-  groupDuplicates.textContent = groupingEnabled
-    ? "Ungroup requests"
-    : `Group duplicates${duplicateCount ? ` (${duplicateCount})` : ""}`;
+function createHideEndpointButton(rawUrl: string): HTMLButtonElement {
+  const endpointKey = getEndpointKey(rawUrl);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Hide endpoint";
+  button.title = `Hide ${endpointKey} for this panel session`;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    hiddenEndpoints.add(endpointKey);
+    renderDisplayedTraffic();
+  });
+  return button;
+}
+
+function createHideStreamButton(streamKey: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Hide stream";
+  button.title = "Hide every detected request in this stream for this panel session";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    hiddenMediaStreams.add(streamKey);
+    renderDisplayedTraffic();
+  });
+  return button;
+}
+
+function updateGroupingButtons(): void {
+  const videoMode = analysisFilter.value === "videos";
+  const nearbyDuplicateCount = createTrafficGroups(
+    displayedExchanges,
+    DUPLICATE_WINDOW_MS
+  ).filter((item) => isTrafficGroup(item) && item.exchanges.length > 1).length;
+  groupDuplicates.disabled =
+    videoMode || (nearbyDuplicateCount === 0 && groupingMode !== "nearby");
+  groupDuplicates.setAttribute("aria-pressed", String(groupingMode === "nearby"));
+  groupDuplicates.textContent =
+    groupingMode === "nearby"
+      ? "Ungroup requests"
+      : `Group duplicates${nearbyDuplicateCount ? ` (${nearbyDuplicateCount})` : ""}`;
+
+  const siteGroupingAvailable = scopeFilter.value === "current" && Boolean(currentPageHostname);
+  groupSiteDuplicates.disabled = videoMode || !siteGroupingAvailable || totalCount === 0;
+  groupSiteDuplicates.setAttribute("aria-pressed", String(groupingMode === "site"));
+  groupSiteDuplicates.textContent =
+    groupingMode === "site" ? "Ungroup site duplicates" : "Group duplicates per site";
 }
 
 function isTrafficGroup(item: ApiExchange | TrafficGroup): item is TrafficGroup {
@@ -311,6 +660,50 @@ function hashGroupKey(value: string): number {
     hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
   }
   return hash;
+}
+
+function createTrafficRoute(exchange: ApiExchange): HTMLParagraphElement {
+  const source = getHostname(exchange.pageUrl ?? "") || "Unknown source";
+  const destination = getHostname(exchange.request.url) || "Unknown destination";
+  const route = document.createElement("p");
+  route.className = "traffic-route";
+  route.append(
+    createRouteLabel(`Request: ${source} → ${destination}`),
+    createRouteLabel(
+      exchange.response.status === 0
+        ? "Response: no response received"
+        : `Response: ${destination} → ${source}`
+    ),
+    createRouteLabel(formatInitiator(exchange))
+  );
+  return route;
+}
+
+function formatInitiator(exchange: ApiExchange): string {
+  const initiator = exchange.initiator;
+  if (!initiator || initiator.kind === "unknown") return "Initiator: unknown";
+  if (initiator.kind === "extension") {
+    return `Initiator: extension ${initiator.origin ?? "unknown ID"}`;
+  }
+  return `Initiator: page${initiator.origin ? ` (${initiator.origin})` : ""}`;
+}
+
+function createRouteLabel(label: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.textContent = label;
+  return span;
+}
+
+function formatTrafficRoute(exchange: ApiExchange): string {
+  const source = getHostname(exchange.pageUrl ?? "") || "Unknown source";
+  const destination = getHostname(exchange.request.url) || "Unknown destination";
+  let path = "";
+  try {
+    path = new URL(exchange.request.url).pathname;
+  } catch {
+    // The destination label already falls back for malformed URLs.
+  }
+  return `${source} → ${destination}${path}`;
 }
 
 function createDetails(

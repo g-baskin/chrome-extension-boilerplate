@@ -32,7 +32,9 @@ export function Options() {
       }
       if (changes["captureHistory"]) {
         const captures = (changes["captureHistory"].newValue as CapturedPageEntry[]) ?? [];
-        setHistory(captures.map(({ id, markdown, html, ...meta }) => ({ id, ...meta })));
+        setHistory(
+          captures.map(({ id, markdown: _markdown, html: _html, ...meta }) => ({ id, ...meta }))
+        );
       }
     });
 

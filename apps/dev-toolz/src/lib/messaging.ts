@@ -68,6 +68,16 @@ export interface MessageTypes {
     request: { tabId: number };
     response: { success: boolean };
   };
+
+  GET_API_CAPTURE_STATUS: {
+    request: { tabId: number };
+    response: { hostname: string; paused: boolean; pausedUntil: number | null };
+  };
+
+  SET_API_CAPTURE_PAUSE: {
+    request: { tabId: number; durationMs: 0 | 300000 | 900000 | 3600000 | null };
+    response: { hostname: string; paused: boolean; pausedUntil: number | null };
+  };
 }
 
 export type MessageType = keyof MessageTypes;

@@ -16,13 +16,16 @@ import {
 } from "@/lib/storage";
 import type { CapturedPageSummary } from "@/lib/capture";
 import {
-  captureActiveTab,
-  captureTab,
-  stopApiTrafficCapture,
-} from "./api-traffic-capture";
+  getApiTrafficPauseStatus,
+  setApiTrafficPause,
+} from "@/lib/api-traffic-pause";
+import { captureTab, stopApiTrafficCapture } from "./api-traffic-capture";
+
+const API_TRAFFIC_ALARM_PREFIX = "api-traffic-resume:";
+const tabStatusRevisions = new Map<number, number>();
+let apiTrafficCaptureRevision = 0;
 
 console.log("[Background] Service worker started");
-void syncApiTrafficCapture();
 
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -79,8 +82,8 @@ createMessageHandler({
   TOGGLE_EXTENSION: async (payload) => {
     const currentSettings = (await getStorage("settings")) ?? defaultSettings;
     await setStorage("settings", { ...currentSettings, enabled: payload.enabled });
-    if (payload.enabled) await captureActiveTab();
-    else await stopApiTrafficCapture();
+    if (payload.enabled) await syncApiTrafficCapture();
+    else await stopSynchronizedApiTrafficCapture();
 
     // Notify all tabs about the state change
     const tabs = await chrome.tabs.query({});
@@ -106,10 +109,36 @@ createMessageHandler({
       chrome.tabs.get(tabId),
       getStorage("settings"),
     ]);
-    if (tab.active && settings?.enabled) {
-      await captureTab(tabId, tab.url ?? "").catch(() => undefined);
-    }
+    if (tab.active && settings?.enabled) await syncApiTrafficCapture();
     return { success: true };
+  },
+
+  GET_API_CAPTURE_STATUS: async ({ tabId }) => {
+    const tab = await chrome.tabs.get(tabId);
+    return getApiTrafficPauseStatus(tab.url ?? "");
+  },
+
+  SET_API_CAPTURE_PAUSE: async ({ tabId, durationMs }) => {
+    if (![0, 300_000, 900_000, 3_600_000, null].includes(durationMs)) {
+      throw new Error("Unsupported API capture pause duration");
+    }
+    const tab = await chrome.tabs.get(tabId);
+    const pageUrl = tab.url ?? "";
+    const pausedUntil = durationMs === 0 ? undefined : durationMs === null ? null : Date.now() + durationMs;
+    const status = await setApiTrafficPause(pageUrl, pausedUntil);
+    if (status.hostname) {
+      const alarmName = `${API_TRAFFIC_ALARM_PREFIX}${status.hostname}`;
+      await chrome.alarms.clear(alarmName);
+      if (status.pausedUntil !== null) {
+        chrome.alarms.create(alarmName, { when: status.pausedUntil });
+      }
+    }
+    const activeTab = await getActiveTab();
+    if (activeTab?.id === tabId) {
+      if (status.paused) await stopSynchronizedApiTrafficCapture();
+      else await syncApiTrafficCapture();
+    }
+    return status;
   },
 
   CONTENT_ACTION: async (payload) => {
@@ -124,10 +153,12 @@ createMessageHandler({
 
   GET_CAPTURE_HISTORY: async () => {
     const history = await getCaptureHistory();
-    const entries: CapturedPageSummary[] = history.map(({ id, markdown, html, ...metadata }) => ({
-      id,
-      ...metadata,
-    }));
+    const entries: CapturedPageSummary[] = history.map(
+      ({ id, markdown: _markdown, html: _html, ...metadata }) => ({
+        id,
+        ...metadata,
+      })
+    );
 
     return { entries };
   },
@@ -162,24 +193,102 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-chrome.tabs.onActivated.addListener(() => {
-  void syncApiTrafficCapture();
-});
-
-chrome.webNavigation.onCommitted.addListener((details) => {
-  if (details.frameId !== 0) return;
+chrome.tabs.onActivated.addListener(({ tabId }) => {
   void chrome.tabs
-    .get(details.tabId)
+    .get(tabId)
     .then((tab) => {
-      if (tab.active) return syncApiTrafficCapture();
+      if (tab.status === "complete") return syncApiTrafficCapture(tabId);
+
+      const statusRevision = (tabStatusRevisions.get(tabId) ?? 0) + 1;
+      tabStatusRevisions.set(tabId, statusRevision);
+      return stopApiTrafficCaptureForActiveTab(tabId, statusRevision);
     })
     .catch(() => undefined);
 });
 
-async function syncApiTrafficCapture(): Promise<void> {
-  const settings = (await getStorage("settings")) ?? defaultSettings;
-  if (settings.enabled) await captureActiveTab().catch(() => undefined);
-  else await stopApiTrafficCapture();
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!tab.active || !changeInfo.status) return;
+  const statusRevision = (tabStatusRevisions.get(tabId) ?? 0) + 1;
+  tabStatusRevisions.set(tabId, statusRevision);
+  if (changeInfo.status === "loading") {
+    void stopApiTrafficCaptureForActiveTab(tabId, statusRevision);
+  } else if (changeInfo.status === "complete") {
+    void syncApiTrafficCapture(tabId);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabStatusRevisions.delete(tabId);
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith(API_TRAFFIC_ALARM_PREFIX)) void syncApiTrafficCapture();
+});
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return tab;
+}
+
+async function stopSynchronizedApiTrafficCapture(): Promise<void> {
+  apiTrafficCaptureRevision += 1;
+  await stopApiTrafficCapture();
+}
+
+async function stopApiTrafficCaptureForActiveTab(
+  expectedTabId: number,
+  expectedStatusRevision: number
+): Promise<void> {
+  const [activeTab, updatedTab] = await Promise.all([
+    getActiveTab(),
+    chrome.tabs.get(expectedTabId).catch(() => undefined),
+  ]);
+  if (
+    activeTab?.id === expectedTabId &&
+    updatedTab?.status === "loading" &&
+    tabStatusRevisions.get(expectedTabId) === expectedStatusRevision
+  ) {
+    await stopSynchronizedApiTrafficCapture();
+  }
+}
+
+async function syncApiTrafficCapture(expectedTabId?: number): Promise<void> {
+  const [settings, tab] = await Promise.all([getStorage("settings"), getActiveTab()]);
+  if (expectedTabId !== undefined && tab?.id !== expectedTabId) return;
+
+  const revision = ++apiTrafficCaptureRevision;
+  const url = tab?.url ?? "";
+  if (
+    !(settings ?? defaultSettings).enabled ||
+    !tab?.id ||
+    tab.status !== "complete" ||
+    !isInspectableUrl(url)
+  ) {
+    if (revision === apiTrafficCaptureRevision) await stopApiTrafficCapture();
+    return;
+  }
+
+  const status = await getApiTrafficPauseStatus(url);
+  if (status.paused) {
+    if (revision === apiTrafficCaptureRevision) await stopApiTrafficCapture();
+    return;
+  }
+
+  const currentTab = await chrome.tabs.get(tab.id).catch(() => undefined);
+  const isCurrent = () => revision === apiTrafficCaptureRevision;
+  if (
+    !isCurrent() ||
+    !currentTab?.active ||
+    currentTab.status !== "complete" ||
+    currentTab.url !== url
+  ) {
+    return;
+  }
+  await captureTab(tab.id, url, isCurrent).catch(() => undefined);
+}
+
+function isInspectableUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
 }
 
 // Keep service worker alive for long-running tasks (use sparingly)

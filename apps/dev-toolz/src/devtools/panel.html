@@ -13,7 +13,7 @@
         <p>Inspect outgoing requests and incoming responses.</p>
       </div>
       <div class="header-actions">
-        <span id="request-count" aria-live="polite">0 captured</span>
+        <span id="request-count" aria-live="polite">0 stored</span>
         <button
           id="group-duplicates"
           type="button"
@@ -23,21 +23,66 @@
         >
           Group duplicates
         </button>
-        <button id="export-responses" type="button" disabled>Export all</button>
-        <button id="clear-responses" type="button">Clear</button>
+        <button
+          id="group-site-duplicates"
+          type="button"
+          aria-pressed="false"
+          title="Group matching method and URL requests across all current-site history"
+          disabled
+        >
+          Group duplicates per site
+        </button>
+        <button id="show-hidden" type="button" hidden>Show hidden</button>
+        <button id="export-responses" type="button" disabled>Export current site</button>
+        <button id="clear-responses" type="button" disabled>Clear current site</button>
       </div>
     </header>
+    <div class="capture-bar">
+      <label>
+        Capture this site
+        <select id="capture-site" aria-label="Pause or resume capture for the current site">
+          <option value="" selected>Loading current site…</option>
+        </select>
+      </label>
+      <span>Chrome’s debugging banner cannot be customized.</span>
+    </div>
+
     <form id="traffic-filters" class="filters">
       <label>
         History
         <select id="filter-scope">
-          <option value="current">Current page</option>
+          <option value="current">Current site</option>
           <option value="all">All history</option>
+        </select>
+      </label>
+      <label>
+        Analysis mode
+        <select id="filter-analysis" aria-describedby="analysis-mode-help">
+          <option value="">All traffic</option>
+          <option value="target">Target signals: hide common noise</option>
+          <option value="focus">Focus: non-routine signals</option>
+          <option value="discovery">Discovery: external or unattributed</option>
+          <option value="writes">Writes: possible data changes</option>
+          <option value="failures">Failures: errors and no response</option>
+          <option value="videos">Videos: streams, files, and segments</option>
         </select>
       </label>
       <label>
         API domain
         <input id="filter-domain" type="search" placeholder="api.example.com" />
+      </label>
+      <label>
+        Route
+        <select id="filter-route">
+          <option value="">All</option>
+          <option value="unknown">Any unknown</option>
+          <option value="unknown-source">Unknown source</option>
+          <option value="unknown-destination">Unknown destination</option>
+          <option value="no-response">No response</option>
+          <option value="page-initiated">Page initiated</option>
+          <option value="extension-initiated">Extension initiated</option>
+          <option value="unknown-initiator">Unknown initiator</option>
+        </select>
       </label>
       <label>
         Method
@@ -70,6 +115,36 @@
       <button type="submit">Apply</button>
       <button id="reset-filters" type="button">Reset</button>
     </form>
+    <p id="analysis-mode-help" class="analysis-help">
+      Target signals mode hides static assets, extension traffic, and Sentry telemetry. Focus combines
+      writes, failures, cross-domain calls, and missing attribution. Discovery isolates external
+      and unattributed traffic. Videos groups files, manifests, audio, subtitles, encryption keys,
+      and stream segments without storing media bodies.
+    </p>
+    <details class="method-guide">
+      <summary>HTTP method guide</summary>
+      <p>Methods describe intent by convention, but an API may use them differently.</p>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="HTTP method guide">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Method</th>
+              <th scope="col">Usually means</th>
+              <th scope="col">Useful for</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">GET</th><td>Read or fetch data</td><td>Finding data sources</td></tr>
+            <tr><th scope="row">POST</th><td>Submit, create, or run an action</td><td>Forms, auth, search, GraphQL</td></tr>
+            <tr><th scope="row">PUT</th><td>Replace a complete resource</td><td>Saved settings and records</td></tr>
+            <tr><th scope="row">PATCH</th><td>Change part of a resource</td><td>Edits and toggles</td></tr>
+            <tr><th scope="row">DELETE</th><td>Remove a resource</td><td>Deletion flows</td></tr>
+            <tr><th scope="row">OPTIONS</th><td>Check allowed request behavior</td><td>CORS diagnostics; often noise</td></tr>
+            <tr><th scope="row">HEAD</th><td>Fetch headers without a body</td><td>Metadata and cache checks</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
     <main id="request-list">
       <p id="empty-state">Capturing active-tab API traffic automatically…</p>
     </main>
