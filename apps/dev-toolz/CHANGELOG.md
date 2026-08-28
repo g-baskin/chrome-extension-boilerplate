@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-08-28
+
+### Added
+
+- Added loaded-result field extraction with decoded URL parameters, flattened bodies, coverage, top values, collapsible inspection, and `field=value` request filtering with JSON body aliases.
+
+### Security
+
+- Field extraction remains bounded, excludes headers, and reads only already-redacted stored traffic.
+
 ## [1.2.0] - 2026-08-28
 
 ### Added

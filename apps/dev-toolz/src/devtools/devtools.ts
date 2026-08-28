@@ -5,6 +5,14 @@ import type { ApiTrafficPauseStatus } from "../lib/api-traffic-pause";
 import type { SiteAccessMode } from "../lib/site-access";
 import type { RaceOutcome, RaceRunResult } from "../background/race-runner";
 import {
+  extractApiFields,
+  matchesApiFieldQuery,
+  parseApiFieldQuery,
+  summarizeApiFields,
+  type ApiFieldQuery,
+  type ApiFieldSummary,
+} from "../lib/api-fields";
+import {
   clearApiTraffic,
   clearApiTrafficForPage,
   countApiTraffic,
@@ -92,6 +100,12 @@ const groupDuplicates = requireButton("group-duplicates");
 const groupSiteDuplicates = requireButton("group-site-duplicates");
 const showHidden = requireButton("show-hidden");
 const loadOlder = requireButton("load-older");
+const fieldSearch = requireInput("field-search");
+const fieldSearchApply = requireButton("field-search-apply");
+const fieldSearchClear = requireButton("field-search-clear");
+const fieldsScope = requireElement("fields-scope");
+const selectedFields = requireElement("selected-fields");
+const interestingFields = requireElement("interesting-fields");
 const filterForm = requireForm("traffic-filters");
 const captureSite = requireSelect("capture-site");
 const scopeFilter = requireSelect("filter-scope");
@@ -158,6 +172,8 @@ let displayedExchanges: ApiExchange[] = [];
 let groupingMode: "nearby" | "site" | null = null;
 const hiddenEndpoints = new Set<string>();
 const hiddenMediaStreams = new Set<string>();
+const selectedFieldNames = new Set(["request.method", "response.status", "url.host"]);
+let activeFieldQuery: ApiFieldQuery | null = null;
 const sessionManifestUrls = new Map<number, { url: string; pageHostname: string }>();
 let activeSection: ToolSection = "traffic";
 let reconLoaded = false;
@@ -207,6 +223,15 @@ raceFlowName.addEventListener("input", renderRaceLab);
 raceRun.addEventListener("click", () => void reviewAndRunRace());
 raceCancel.addEventListener("click", () => void cancelActiveRace());
 raceResults.replaceChildren();
+fieldSearch.addEventListener("input", () => {
+  updateFieldSearchActions();
+  renderFieldSidebar();
+});
+fieldSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && parseApiFieldQuery(fieldSearch.value)) applyFieldSearch();
+});
+fieldSearchApply.addEventListener("click", applyFieldSearch);
+fieldSearchClear.addEventListener("click", clearFieldSearch);
 
 void initializePanel();
 
@@ -242,11 +267,15 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
       groupingMode ||
       hiddenEndpoints.size > 0 ||
       hiddenMediaStreams.size > 0 ||
-      isMediaAnalysisMode(analysisFilter.value)
+      isMediaAnalysisMode(analysisFilter.value) ||
+      activeFieldQuery
     ) {
       renderDisplayedTraffic();
     }
-    else requestList.prepend(createExchange(message.payload));
+    else {
+      requestList.prepend(createExchange(message.payload));
+      renderFieldSidebar();
+    }
     updateGroupingButtons();
   }
   return false;
@@ -1318,16 +1347,165 @@ function updateScopeActions(): void {
   clearResponses.disabled = unavailable;
 }
 
+function getVisibleExchanges(): ApiExchange[] {
+  return displayedExchanges.filter((exchange) =>
+    !isExchangeHidden(exchange) &&
+    (!activeFieldQuery || matchesApiFieldQuery(exchange, activeFieldQuery))
+  );
+}
+
+function updateFieldSearchActions(): void {
+  fieldSearchApply.hidden = !parseApiFieldQuery(fieldSearch.value);
+  fieldSearchClear.hidden = !fieldSearch.value && !activeFieldQuery;
+}
+
+function setFieldSearch(name: string, value?: string): void {
+  fieldSearch.value = `${name}=${value ?? ""}`;
+  updateFieldSearchActions();
+  renderFieldSidebar();
+  fieldSearch.focus();
+  if (value === undefined) fieldSearch.setSelectionRange(fieldSearch.value.length, fieldSearch.value.length);
+}
+
+function applyFieldSearch(): void {
+  const query = parseApiFieldQuery(fieldSearch.value);
+  if (!query) return;
+  activeFieldQuery = query;
+  updateFieldSearchActions();
+  renderDisplayedTraffic();
+}
+
+function clearFieldSearch(): void {
+  fieldSearch.value = "";
+  activeFieldQuery = null;
+  updateFieldSearchActions();
+  renderDisplayedTraffic();
+}
+
+function renderFieldSidebar(exchanges = getVisibleExchanges()): void {
+  const queryName = fieldSearch.value.split("=", 1)[0]?.trim().toLowerCase() ?? "";
+  const summaries = summarizeApiFields(exchanges).filter((field) =>
+    field.name.toLowerCase().includes(queryName)
+  );
+  const selected = summaries
+    .filter((field) => selectedFieldNames.has(field.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const interesting = summaries
+    .filter((field) => !selectedFieldNames.has(field.name))
+    .sort((left, right) =>
+      right.coveragePercentage - left.coveragePercentage || left.name.localeCompare(right.name)
+    );
+  fieldsScope.textContent = `Loaded results · ${exchanges.length} visible`;
+  renderFieldCatalog(selectedFields, selected, "No selected fields match.");
+  renderFieldCatalog(interestingFields, interesting, "No interesting fields match.");
+}
+
+function renderFieldCatalog(
+  container: HTMLElement,
+  summaries: ApiFieldSummary[],
+  emptyMessage: string
+): void {
+  if (summaries.length) {
+    container.replaceChildren(...summaries.map(createFieldSummary));
+    return;
+  }
+  const empty = document.createElement("p");
+  empty.className = "field-empty";
+  empty.textContent = emptyMessage;
+  container.replaceChildren(empty);
+}
+
+function createFieldSummary(field: ApiFieldSummary): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "field-row";
+  const heading = document.createElement("div");
+  heading.className = "field-row-heading";
+  const key = document.createElement("button");
+  key.type = "button";
+  key.className = "field-key";
+  key.textContent = field.name;
+  key.title = `Filter by ${field.name}`;
+  key.addEventListener("click", () => setFieldSearch(field.name));
+  const coverage = document.createElement("span");
+  coverage.textContent = `${field.coveragePercentage}%`;
+  coverage.title = `${field.eventCount} loaded results · ${field.distinctValueCount} distinct values`;
+  heading.append(key, coverage);
+
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = `${field.distinctValueCount} values`;
+  const values = document.createElement("ul");
+  values.className = "field-values";
+  for (const topValue of field.topValues) {
+    const item = document.createElement("li");
+    const value = document.createElement("button");
+    value.type = "button";
+    value.className = "field-value";
+    value.textContent = topValue.value;
+    value.title = `Filter by ${field.name}=${topValue.value}`;
+    value.addEventListener("click", () => setFieldSearch(field.name, topValue.value));
+    const count = document.createElement("span");
+    count.textContent = `× ${topValue.count}`;
+    item.append(value, count);
+    values.appendChild(item);
+  }
+  const selection = document.createElement("button");
+  selection.type = "button";
+  const isSelected = selectedFieldNames.has(field.name);
+  selection.textContent = isSelected ? "Remove from selected" : "Add to selected";
+  selection.setAttribute("aria-label", `${selection.textContent}: ${field.name}`);
+  selection.addEventListener("click", () => {
+    if (isSelected) selectedFieldNames.delete(field.name);
+    else selectedFieldNames.add(field.name);
+    renderFieldSidebar();
+  });
+  details.append(summary, values, selection);
+  row.append(heading, details);
+  return row;
+}
+
+function createFieldsDetails(exchange: ApiExchange): HTMLDetailsElement {
+  const fields = extractApiFields(exchange);
+  const details = document.createElement("details");
+  details.className = "exchange-fields";
+  const summary = document.createElement("summary");
+  summary.textContent = `Fields (${fields.length})`;
+  const list = document.createElement("dl");
+  for (const field of fields) {
+    const name = document.createElement("dt");
+    const key = document.createElement("button");
+    key.type = "button";
+    key.textContent = field.name;
+    key.addEventListener("click", () => setFieldSearch(field.name));
+    name.appendChild(key);
+    const value = document.createElement("dd");
+    const valueButton = document.createElement("button");
+    valueButton.type = "button";
+    valueButton.textContent = field.value;
+    valueButton.addEventListener("click", () => setFieldSearch(field.name, field.value));
+    value.appendChild(valueButton);
+    list.append(name, value);
+  }
+  details.append(summary, list);
+  return details;
+}
+
 function renderDisplayedTraffic(): void {
-  const visibleExchanges = displayedExchanges.filter((exchange) => !isExchangeHidden(exchange));
-  const hiddenRequestCount = displayedExchanges.length - visibleExchanges.length;
+  const unhiddenExchanges = displayedExchanges.filter((exchange) => !isExchangeHidden(exchange));
+  const visibleExchanges = activeFieldQuery
+    ? unhiddenExchanges.filter((exchange) => matchesApiFieldQuery(exchange, activeFieldQuery!))
+    : unhiddenExchanges;
+  renderFieldSidebar(visibleExchanges);
+  const hiddenRequestCount = displayedExchanges.length - unhiddenExchanges.length;
   showHidden.hidden = hiddenRequestCount === 0;
   showHidden.textContent = `Show hidden (${hiddenRequestCount})`;
 
   if (visibleExchanges.length === 0) {
-    emptyState.textContent = hiddenRequestCount
-      ? "All matching requests are hidden."
-      : "No matching API traffic.";
+    emptyState.textContent = activeFieldQuery
+      ? "No loaded requests match this field filter."
+      : hiddenRequestCount
+        ? "All matching requests are hidden."
+        : "No matching API traffic.";
     requestList.replaceChildren(emptyState);
     return;
   }
@@ -1430,6 +1608,7 @@ function createExchange(exchange: ApiExchange): HTMLElement {
   }
 
   article.append(
+    createFieldsDetails(exchange),
     createDetails("Outgoing request", exchange.request.headers, exchange.request.body),
     createDetails("Incoming response", exchange.response.headers, exchange.response.body)
   );

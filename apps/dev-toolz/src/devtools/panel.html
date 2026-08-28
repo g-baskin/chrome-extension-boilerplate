@@ -159,10 +159,38 @@
         </table>
       </div>
     </details>
-    <main id="request-list">
-      <p id="empty-state">Capturing active-tab API traffic automatically…</p>
-    </main>
-    <button id="load-older" class="load-older" type="button" hidden>Load older</button>
+    <div class="traffic-workspace">
+      <aside class="fields-sidebar">
+        <details class="fields-panel" open>
+          <summary><span id="fields-heading">Extracted fields</span></summary>
+          <div class="fields-panel-content">
+            <p id="fields-scope">Loaded results · 0 visible</p>
+            <label class="field-search-label">
+              Find a field
+              <input id="field-search" type="search" placeholder="region=us" />
+            </label>
+            <div class="field-search-actions">
+              <button id="field-search-apply" type="button" hidden>Search</button>
+              <button id="field-search-clear" type="button" hidden>Clear</button>
+            </div>
+            <section aria-labelledby="selected-fields-heading">
+              <h3 id="selected-fields-heading">Selected fields</h3>
+              <div id="selected-fields" class="field-catalog"></div>
+            </section>
+            <section aria-labelledby="interesting-fields-heading">
+              <h3 id="interesting-fields-heading">Interesting fields</h3>
+              <div id="interesting-fields" class="field-catalog"></div>
+            </section>
+          </div>
+        </details>
+      </aside>
+      <div class="traffic-results">
+        <main id="request-list">
+          <p id="empty-state">Capturing active-tab API traffic automatically…</p>
+        </main>
+        <button id="load-older" class="load-older" type="button" hidden>Load older</button>
+      </div>
+    </div>
     </section>
 
     <section id="red-team-section" class="tool-section" hidden>
