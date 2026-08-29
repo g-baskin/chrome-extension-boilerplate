@@ -3,9 +3,9 @@ import { Icon } from "../components/Icon";
 import { normalizeKeywordSettings } from "../lib/keywords";
 import { matchJob } from "../lib/matcher";
 import { sendMessage, type CurrentJob } from "../lib/messages";
-import type { KeywordSettings, SavedJob } from "../lib/types";
+import type { KeywordSettings, SavedJob, ScanVisibleJobsResult } from "../lib/types";
 
-const empty: KeywordSettings = { required: [], preferred: [], excluded: [] };
+const empty: KeywordSettings = { required: [], preferred: [], excluded: [], excludeClearanceRequired: false };
 const asText = (terms: string[]) => terms.join("\n");
 
 export function Popup() {
@@ -15,6 +15,8 @@ export function Popup() {
   const [status, setStatus] = useState("");
   const [savingJob, setSavingJob] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanVisibleJobsResult | null>(null);
 
   useEffect(() => {
     void Promise.all([
@@ -28,7 +30,7 @@ export function Popup() {
     }).catch(() => setPhase("error"));
   }, []);
 
-  const update = (key: keyof KeywordSettings, value: string) => setSettings((old) => ({ ...old, [key]: value.split("\n") }));
+  const update = (key: "required" | "preferred" | "excluded", value: string) => setSettings((old) => ({ ...old, [key]: value.split("\n") }));
 
   const saveSettings = async (event: FormEvent) => {
     event.preventDefault();
@@ -41,6 +43,17 @@ export function Popup() {
     setSettings(response.data);
     setCurrent((old) => old ? { ...old, match: matchJob(old.job, response.data) } : null);
     setStatus("Keyword rules saved.");
+  };
+
+  const scanVisible = async () => {
+    setScanning(true);
+    setScanResult(null);
+    setStatus("Scanning up to 10 visible jobs…");
+    const response = await sendMessage<ScanVisibleJobsResult>({ type: "SCAN_VISIBLE_JOBS" });
+    setScanning(false);
+    if (!response.ok) { setStatus(response.error); return; }
+    setScanResult(response.data);
+    setStatus(`Scanned ${response.data.scanned} jobs; ${response.data.failed} could not be read.`);
   };
 
   const saveCurrent = async () => {
@@ -76,12 +89,23 @@ export function Popup() {
       </> : <p className="notice">Open a LinkedIn job, then reopen this popup.</p>}
     </section>
 
+    <section className="scan" aria-labelledby="scan-title">
+      <h2 id="scan-title">Visible listings</h2>
+      <p className="help">Uses your saved rules on up to 10 rendered cards. It never clicks Show all or saves automatically.</p>
+      <button className="secondary" type="button" disabled={scanning} onClick={() => void scanVisible()}>{scanning ? "Scanning…" : "Scan visible jobs"}</button>
+      {scanResult && <div className="scan-results">
+        <p><strong>{scanResult.eligible.length}</strong> eligible of {scanResult.scanned} scanned</p>
+        {scanResult.eligible.length === 0 ? <p className="help">No eligible visible jobs found.</p> : <ul>{scanResult.eligible.map(({ job }) => <li key={job.id}><a href={job.url} target="_blank" rel="noreferrer">{job.title}<Icon name="arrow" /></a></li>)}</ul>}
+      </div>}
+    </section>
+
     <form className="rules" onSubmit={(event) => void saveSettings(event)}>
       <h2>Keyword rules</h2>
       <p className="help">Enter phrases on separate lines or with commas. Matching ignores letter case.</p>
       <label>Required<textarea value={asText(settings.required)} onChange={(event) => update("required", event.target.value)} rows={3} maxLength={4_050} placeholder="React&#10;TypeScript" /></label>
       <label>Preferred<textarea value={asText(settings.preferred)} onChange={(event) => update("preferred", event.target.value)} rows={3} maxLength={4_050} placeholder="Remote&#10;GraphQL" /></label>
       <label>Excluded<textarea value={asText(settings.excluded)} onChange={(event) => update("excluded", event.target.value)} rows={2} maxLength={4_050} placeholder="Unpaid&#10;Commission only" /></label>
+      <label className="clearance-option"><input type="checkbox" checked={settings.excludeClearanceRequired} onChange={(event) => setSettings((old) => ({ ...old, excludeClearanceRequired: event.target.checked }))} /><span><strong>Exclude clearance-required jobs</strong><small>Detects active clearances and requirements to obtain or maintain one.</small></span></label>
       <button className="secondary" type="submit" disabled={savingRules}>{savingRules ? "Saving…" : "Save keyword rules"}</button>
     </form>
     <p className="live-status" role="status" aria-live="polite">{status}</p>

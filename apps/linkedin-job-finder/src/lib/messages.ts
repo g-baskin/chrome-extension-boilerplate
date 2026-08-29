@@ -1,5 +1,5 @@
 import { MAX_KEYWORD_LENGTH, MAX_KEYWORDS_PER_LIST } from "./keywords";
-import type { ExtractedJob, JobMatch, KeywordSettings, SavedJob } from "./types";
+import type { ExtractedJob, JobMatch, KeywordSettings, SavedJob, ScanVisibleJobsResult } from "./types";
 
 export type Request =
   | { type: "GET_SETTINGS" }
@@ -9,7 +9,8 @@ export type Request =
   | { type: "UPDATE_NOTES"; id: string; notes: string }
   | { type: "DELETE_JOB"; id: string }
   | { type: "CLEAR_JOBS" }
-  | { type: "GET_CURRENT_JOB" };
+  | { type: "GET_CURRENT_JOB" }
+  | { type: "SCAN_VISIBLE_JOBS" };
 
 export type Response<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
 export type CurrentJob = { job: ExtractedJob; match: JobMatch; saved: boolean };
@@ -25,7 +26,8 @@ function isStringList(value: unknown): value is string[] {
 }
 
 function isSettings(value: unknown): value is KeywordSettings {
-  return isRecord(value) && isStringList(value.required) && isStringList(value.preferred) && isStringList(value.excluded);
+  return isRecord(value) && isStringList(value.required) && isStringList(value.preferred)
+    && isStringList(value.excluded) && typeof value.excludeClearanceRequired === "boolean";
 }
 
 function isJob(value: unknown): value is ExtractedJob {
@@ -46,10 +48,18 @@ function isMatch(value: unknown): value is JobMatch {
     && Number(value.positiveMatched) <= Number(value.positiveTotal) && Number(value.positiveTotal) <= 100;
 }
 
+export function isScanVisibleJobsResult(value: unknown): value is ScanVisibleJobsResult {
+  if (!isRecord(value) || !Number.isInteger(value.scanned) || !Number.isInteger(value.failed)
+    || Number(value.scanned) < 0 || Number(value.scanned) > 10 || Number(value.failed) < 0
+    || Number(value.failed) > Number(value.scanned) || !Array.isArray(value.eligible)
+    || value.eligible.length > Number(value.scanned) - Number(value.failed)) return false;
+  return value.eligible.every((item) => isRecord(item) && isJob(item.job) && isMatch(item.match));
+}
+
 export function isRequest(value: unknown): value is Request {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   switch (value.type) {
-    case "GET_SETTINGS": case "GET_JOBS": case "CLEAR_JOBS": case "GET_CURRENT_JOB": return true;
+    case "GET_SETTINGS": case "GET_JOBS": case "CLEAR_JOBS": case "GET_CURRENT_JOB": case "SCAN_VISIBLE_JOBS": return true;
     case "SET_SETTINGS": return isSettings(value.settings);
     case "SAVE_JOB": return isJob(value.job) && isMatch(value.match);
     case "UPDATE_NOTES": return isShortId(value.id) && isBoundedString(value.notes, 2_000);

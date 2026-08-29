@@ -13,7 +13,9 @@ describe("keyword normalization", () => {
   });
 
   it("normalizes malformed settings", () => {
-    expect(normalizeKeywordSettings({ required: "React, React", preferred: 3, excluded: ["agency"] }))
-      .toEqual({ required: ["React"], preferred: [], excluded: ["agency"] });
+    expect(normalizeKeywordSettings({ required: "React, React", preferred: 3, excluded: ["agency"], excludeClearanceRequired: true }))
+      .toEqual({ required: ["React"], preferred: [], excluded: ["agency"], excludeClearanceRequired: true });
+    expect(normalizeKeywordSettings({ excludeClearanceRequired: "yes" })).toMatchObject({ excludeClearanceRequired: false });
+    expect(normalizeKeywordSettings({ excludeActiveClearance: true })).toMatchObject({ excludeClearanceRequired: true });
   });
 });

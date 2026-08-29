@@ -2,6 +2,7 @@ export interface KeywordSettings {
   required: string[];
   preferred: string[];
   excluded: string[];
+  excludeClearanceRequired: boolean;
 }
 
 export interface ExtractedJob {
@@ -21,6 +22,12 @@ export interface JobMatch {
   matchedExcluded: string[];
   positiveMatched: number;
   positiveTotal: number;
+}
+
+export interface ScanVisibleJobsResult {
+  scanned: number;
+  failed: number;
+  eligible: Array<{ job: ExtractedJob; match: JobMatch }>;
 }
 
 export interface SavedJob {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalLinkedInJobUrl, extractLinkedInJob, getLinkedInJobId } from "./linkedin-job";
+import { canonicalLinkedInJobUrl, collectLinkedInJobIds, extractLinkedInJob, getLinkedInJobId } from "./linkedin-job";
 
 function root(values: Record<string, string>) {
   return { querySelector: (selector: string) => values[selector] ? { textContent: values[selector] } : null } as unknown as Pick<Document, "querySelector">;
@@ -17,6 +17,17 @@ describe("LinkedIn job extraction", () => {
     expect(canonicalLinkedInJobUrl("123")).toBe("https://www.linkedin.com/jobs/view/123/");
   });
 
+  it("collects unique bounded LinkedIn IDs from untrusted card links", () => {
+    const urls = [
+      "https://www.linkedin.com/jobs/view/1/",
+      "https://www.linkedin.com/jobs/view/1/?duplicate=true",
+      "https://linkedin.com/jobs/view/2/",
+      "https://linkedin.com.evil.test/jobs/view/3/",
+      ...Array.from({ length: 20 }, (_, index) => `https://www.linkedin.com/jobs/view/${index + 10}/`),
+    ];
+    expect(collectLinkedInJobIds(urls)).toEqual(["1", "2", "10", "11", "12", "13", "14", "15", "16", "17"]);
+  });
+
   it("uses selector fallbacks and normalizes whitespace", () => {
     const job = extractLinkedInJob(root({
       ".jobs-unified-top-card__job-title": "  Staff\n Engineer ",
@@ -25,6 +36,14 @@ describe("LinkedIn job extraction", () => {
       ".show-more-less-html__markup": " Build\n reliable systems ",
     }), "https://www.linkedin.com/jobs/view/123/");
     expect(job).toMatchObject({ id: "123", title: "Staff Engineer", company: "Example Co", location: "Remote", description: "Build reliable systems" });
+  });
+
+  it("supports LinkedIn's current SDUI title link and about-the-job component", () => {
+    const job = extractLinkedInJob(root({
+      "a[href*='/jobs/view/123/']": "SIEM Engineer",
+      "[data-sdui-component$='.aboutTheJob']": "About the job Monitor and investigate security events.",
+    }), "https://www.linkedin.com/jobs/search/?currentJobId=123");
+    expect(job).toMatchObject({ title: "SIEM Engineer", description: "About the job Monitor and investigate security events." });
   });
 
   it("requires bounded title and description fields", () => {

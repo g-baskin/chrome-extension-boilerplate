@@ -2,10 +2,10 @@
 
 ## Purpose
 
-This is the internal release and recovery record for Dev Toolz.
+This is the internal release and recovery record for every app in this repository.
 
-- `apps/dev-toolz/CHANGELOG.md` explains user-visible behavior.
-- `CHANGEMANAGEMENT.MD` records release identity, evidence, failures, recovery, and permanent guardrails.
+- Each app's changelog, when present, explains user-visible behavior.
+- `CHANGEMANAGEMENT.md` records release identity, evidence, failures, recovery, and permanent guardrails for all apps.
 - Git records source history. It does not prove that a build was produced, loaded, or smoke-tested.
 - This file is append-only for released versions. Correct an old record with a dated note; never rewrite the incident away.
 
@@ -21,6 +21,7 @@ This is the internal release and recovery record for Dev Toolz.
 
 ## Current repository state
 
+- Current LinkedIn Job Finder candidate: **0.1.8**, uncommitted build-verified working tree; runtime acceptance pending.
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
 - GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
@@ -29,7 +30,267 @@ This is the internal release and recovery record for Dev Toolz.
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
 - Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
 
-## v1.8.7 — 2026-08-28 — Released
+## LinkedIn Job Finder v0.1.8 — 2026-08-29 — Source candidate
+
+### Intent and scope
+
+- Expected outcome: keep the in-page panel and popup snapshot synchronized after visible-card scanning and restoration.
+- Suppress observer-driven intermediate renders during scanning, then force one render after the final selection settles.
+- SemVer rationale: forward patch because final review found stale current-job state after the 0.1.7 build.
+
+### Release identity
+
+- Previous candidate: 0.1.7, build verified but not runtime tested.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.8.
+- Built extension targets 0.1.8.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
+- `npm run lint` passed for both workspaces.
+- `npm run typecheck` passed for both workspaces.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.8.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.8.
+- Popup, saved-jobs page, service worker, content-script loader, icons, and production assets exist.
+- Evidence level: build verified; runtime acceptance pending.
+
+### Verdict
+
+**Build verified; runtime pending.** Reload only the exact 0.1.8 build for Chrome acceptance.
+
+## LinkedIn Job Finder v0.1.7 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: scan up to 10 currently rendered LinkedIn job cards without clicking “Show all,” then return ephemeral eligible matches.
+- The scan is user-triggered, sequential, same-pane, visible-card-only, bounded by timeout, restores the original selection when possible, and never auto-saves.
+- SemVer rationale: forward patch because this is a backward-compatible user-requested capability after the 0.1.6 build.
+
+### Release identity
+
+- Previous candidate: 0.1.6, build verified but not runtime tested.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.7.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- Visible-link collection regression failed before implementation and passed afterward: 6 extraction tests.
+- Runtime request and bounded scan-result guards are covered by 3 message tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.7.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.7.
+- Popup fixture rendered at 380px with the scan control, saved-rules warning, and existing primary actions visible.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Superseded before runtime acceptance.** Final review found stale current-job state after scanning, moving the forward candidate to 0.1.8.
+
+## LinkedIn Job Finder v0.1.6 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: cover common “eligible to obtain” requirements while preserving explicit “No TS/SCI required” exclusions.
+- SemVer rationale: forward patch because final review found two bounded clearance-language gaps after the 0.1.5 build.
+
+### Release identity
+
+- Previous candidate: 0.1.5, build verified but not runtime tested.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.6.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- Focused clearance-language regressions failed before implementation and passed afterward: 6 matcher tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 19 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.6.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.6.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Superseded before runtime acceptance.** The requested visible-listing scan moved the forward candidate to 0.1.7.
+
+## LinkedIn Job Finder v0.1.5 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: exclude any job requiring a security clearance, whether already active or obtainable after hiring.
+- Detect active/current clearances plus requirements to obtain, maintain, hold, or qualify for one; continue allowing explicit “no clearance required” language.
+- SemVer rationale: forward patch because the user broadened the filter after the 0.1.4 build.
+
+### Release identity
+
+- Previous candidate: 0.1.4, build verified but not runtime tested.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.5.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- Focused future-clearance regression failed before implementation and passed afterward: 6 matcher tests.
+- Settings migration from the 0.1.4 checkbox is covered by normalization tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 19 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.5.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.5.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Superseded before runtime acceptance.** Final review found two common clearance-language gaps, moving the forward candidate to 0.1.6.
+
+## LinkedIn Job Finder v0.1.4 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: let users exclude jobs requiring an active security clearance without maintaining fragile phrase lists.
+- Add one explicit popup checkbox backed by bounded, constant clearance-requirement patterns; do not reject “no clearance required” or “ability to obtain” language alone.
+- SemVer rationale: forward patch because this backward-compatible filter was requested after 0.1.3 runtime acceptance.
+
+### Release identity
+
+- Previous candidate: 0.1.3, runtime verified but not committed.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.4.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- Focused clearance regression failed before implementation and passed afterward: 6 matcher tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 19 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.4.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.4.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Superseded before runtime acceptance.** The user clarified that future-clearance requirements must also be excluded, moving the forward candidate to 0.1.5.
+
+## LinkedIn Job Finder v0.1.3 — 2026-08-29 — Superseded runtime-verified candidate
+
+### Intent and scope
+
+- Expected outcome: extract the active SDUI job title from its confirmed `/jobs/view/<id>/` anchor so matching can start.
+- Use the validated numeric current job ID to avoid selecting another result's title.
+- SemVer rationale: forward patch because built candidate 0.1.2 still failed runtime extraction.
+
+### Release identity
+
+- Previous candidate: 0.1.2, build verified but runtime rejected.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.3.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: runtime verified.
+
+### Pre-build evidence
+
+- User-provided DevTools evidence confirmed the current title is an anchor whose `href` contains `/jobs/view/<currentJobId>/`.
+- Focused title regression failed before the fix and passed after it: 5 tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 17 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.3.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.3.
+- Chrome runtime acceptance passed: the panel displayed `SIEM Engineer`, eligible status, 2 of 2 positive keywords, matched `splunk` and `cybersecurity`, no missing or excluded terms, and an enabled save action.
+
+### Verdict
+
+**Superseded after runtime acceptance.** The title and description fix passed, then the requested clearance filter moved the forward candidate to 0.1.4.
+
+### Release closeout
+
+- Outcome: runtime verified candidate.
+- What worked: popup availability, SDUI title extraction, SDUI description extraction, keyword matching, evidence display, and save-action availability.
+- What failed: 0.1.1 missed the SDUI description; 0.1.2 missed the SDUI anchor title; both were superseded before release.
+- Detection method: user-provided LinkedIn runtime output plus focused selector regressions.
+- Rollback target: committed 0.1.0 source at `f7fc862`; forward candidate 0.1.3 is preferred.
+- Permanent guardrail: inspect active LinkedIn SDUI markup before adding selectors, and require a forward patch after every built runtime failure.
+
+## LinkedIn Job Finder v0.1.2 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: extract the visible job description from LinkedIn's confirmed SDUI `aboutTheJob` component.
+- Replace speculative broad fallbacks with the exact inspected component selector while preserving legacy selectors.
+- SemVer rationale: forward patch because built candidate 0.1.1 failed runtime extraction.
+
+### Release identity
+
+- Previous candidate: 0.1.1, build verified but runtime rejected.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.2.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- User-provided DevTools evidence confirmed `data-sdui-component="com.linkedin.sdui.generated.jobseeker.dsl.impl.aboutTheJob"` contains the job description.
+- Focused selector regression failed before the fix and passed after it: 5 tests.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 17 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed without modifying Dev Toolz.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.2.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.2.
+- Chrome runtime acceptance for 0.1.2 failed: the confirmed description selector matched, but the panel remained at “Reading the open job…” because the SDUI title is not a heading.
+
+### Verdict
+
+**Superseded after runtime failure.** LinkedIn's active SDUI title is a job-link anchor absent from 0.1.2.
+
+## LinkedIn Job Finder v0.1.1 — 2026-08-29 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: extract descriptions from LinkedIn's current job-detail container so the in-page panel advances beyond “Reading the open job…”.
+- Added a focused selector regression without changing permissions, storage, matching rules, or saved-job behavior.
+- SemVer rationale: patch release for backward-compatible LinkedIn DOM compatibility.
+
+### Release identity
+
+- Previous version: 0.1.0 at source commit `f7fc862`.
+- Source state: uncommitted working tree based on `f7fc862`.
+- Package, source manifest, and lockfile target 0.1.1.
+- Tag, archive, checksum, and source commit: pending.
+- Evidence level: build verified.
+
+### Pre-build evidence
+
+- User confirmed the 0.1.0 panel injected on LinkedIn, but it remained at “Reading the open job…”.
+- A regression test reproduced the missing `.jobs-description-content__text` selector and passed after the fix.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 17 tests across 5 files.
+- `npm run lint` passed for Dev Toolz 1.8.7 and LinkedIn Job Finder 0.1.1.
+- `npm run typecheck` passed for Dev Toolz 1.8.7 and LinkedIn Job Finder 0.1.1.
+- Package, source manifest, and lockfile synchronization check passed for 0.1.1.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.1.
+- Chrome runtime acceptance for 0.1.1 failed: panel injected, but remained at “Reading the open job…” after the description was visible.
+
+### Verdict
+
+**Superseded after runtime failure.** LinkedIn's active SDUI markup uses an `aboutTheJob` data component absent from 0.1.1.
+
+## Dev Toolz v1.8.7 — 2026-08-28 — Released
 
 ### Intent and scope
 
@@ -221,7 +482,15 @@ This is the internal release and recovery record for Dev Toolz.
 
 **Not ready for release.** Pre-build static checks pass, but runtime acceptance and release identity are incomplete. Do not rebuild, tag, archive, or call 1.8.3 released until the blockers above are resolved.
 
-## Non-negotiable release invariants
+## Repository-wide non-negotiable change-control invariant
+
+1. Every intentional app change requires a semantic version bump and a release record in this file; no exceptions.
+2. Synchronize each affected app's package, extension manifest when present, lockfile workspace entry, and changelog when present before building or committing.
+3. Changes spanning apps require a version and release record for each affected app.
+4. Never build an app's production `dist` under an unchanged version.
+5. Record check, build, emitted-version, and runtime evidence honestly for the exact candidate.
+
+## Dev Toolz release invariants
 
 1. Never rebuild `apps/dev-toolz/dist` under an unchanged version.
 2. Default fixes and performance changes to a patch bump unless minor or major is explicitly selected.
@@ -239,7 +508,32 @@ This is the internal release and recovery record for Dev Toolz.
 9. Never rebuild or silently replace an already-recorded release. Use a new version for a forward fix.
 10. Never ask for repeated Chrome reloads during iterative debugging. Reload only a finished candidate.
 
-## Mandatory release checklist
+## Repository-wide mandatory release checklist
+
+### Before build
+
+- [ ] Intended diff, user-visible outcome, non-goals, risks, and SemVer rationale recorded.
+- [ ] Every affected app's package, extension manifest when present, lockfile entry, changelog when present, and release record agree.
+- [ ] App tests, repository lint, repository typecheck, version synchronization, and `git diff --check` pass.
+
+### Build and package
+
+- [ ] Build runs only after source, version files, and release evidence are final.
+- [ ] Emitted manifest or package metadata matches the source version.
+- [ ] Required entry points and production assets exist.
+
+### App smoke test
+
+- [ ] Fresh install and upgrade from the prior version work without errors or data loss.
+- [ ] Primary entry points, target-site integration, storage, and destructive controls work.
+- [ ] Chrome's extension Errors page contains no new exception.
+
+### Release closeout
+
+- [ ] Outcome, failures, detection method, rollback target, and permanent guardrail recorded.
+- [ ] Source commit and release artifact identity recorded when the candidate is released.
+
+## Mandatory Dev Toolz release checklist
 
 ### Before build
 

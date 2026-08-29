@@ -1,6 +1,7 @@
 import { EMPTY_KEYWORDS } from "../lib/keywords";
-import { isRequest, type CurrentJob, type Response } from "../lib/messages";
+import { isRequest, isScanVisibleJobsResult, type CurrentJob, type Response } from "../lib/messages";
 import { clearJobs, deleteJob, getJobs, getSettings, saveJob, setSettings, STORAGE_KEYS, updateNotes, type StorageAdapter } from "../lib/storage";
+import type { ScanVisibleJobsResult } from "../lib/types";
 
 const storage: StorageAdapter = {
   get: (keys) => chrome.storage.local.get(keys),
@@ -31,6 +32,15 @@ async function activeCurrentJob(): Promise<CurrentJob | null> {
   }
 }
 
+async function scanActiveTab(): Promise<ScanVisibleJobsResult | null> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined || !tab.url) return null;
+  const url = new URL(tab.url);
+  if (url.protocol !== "https:" || !["linkedin.com", "www.linkedin.com"].includes(url.hostname) || !url.pathname.startsWith("/jobs/")) return null;
+  const result: unknown = await chrome.tabs.sendMessage(tab.id, { type: "SCAN_VISIBLE_JOBS" });
+  return isScanVisibleJobsResult(result) ? result : null;
+}
+
 async function handle(message: unknown, sender: chrome.runtime.MessageSender): Promise<Response> {
   if (sender.id !== chrome.runtime.id || !isRequest(message)) return { ok: false, error: "Invalid request." };
   try {
@@ -55,6 +65,10 @@ async function handle(message: unknown, sender: chrome.runtime.MessageSender): P
         await clearJobs(storage);
         return { ok: true, data: null };
       case "GET_CURRENT_JOB": return { ok: true, data: await activeCurrentJob() };
+      case "SCAN_VISIBLE_JOBS": {
+        const result = await scanActiveTab();
+        return result ? { ok: true, data: result } : { ok: false, error: "Open a LinkedIn Jobs page with visible listings before scanning." };
+      }
     }
   } catch {
     return { ok: false, error: "The extension could not complete that request." };

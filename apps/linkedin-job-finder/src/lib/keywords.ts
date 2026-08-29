@@ -2,7 +2,7 @@ import type { KeywordSettings } from "./types";
 
 export const MAX_KEYWORDS_PER_LIST = 50;
 export const MAX_KEYWORD_LENGTH = 80;
-export const EMPTY_KEYWORDS: KeywordSettings = { required: [], preferred: [], excluded: [] };
+export const EMPTY_KEYWORDS: KeywordSettings = { required: [], preferred: [], excluded: [], excludeClearanceRequired: false };
 
 export function normalizeKeywordList(input: unknown): string[] {
   const values = (typeof input === "string" ? [input] : Array.isArray(input) ? input : [])
@@ -28,5 +28,6 @@ export function normalizeKeywordSettings(input: unknown): KeywordSettings {
     required: normalizeKeywordList(record.required),
     preferred: normalizeKeywordList(record.preferred),
     excluded: normalizeKeywordList(record.excluded),
+    excludeClearanceRequired: record.excludeClearanceRequired === true || record.excludeActiveClearance === true,
   };
 }
