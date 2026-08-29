@@ -30,12 +30,14 @@ This is the internal release and recovery record for every app in this repositor
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
 - Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
 
-## LinkedIn Job Finder v0.1.8 — 2026-08-29 — Source candidate
+## LinkedIn Job Finder v0.1.8 — 2026-08-29 — Build-verified candidate
 
 ### Intent and scope
 
 - Expected outcome: keep the in-page panel and popup snapshot synchronized after visible-card scanning and restoration.
 - Suppress observer-driven intermediate renders during scanning, then force one render after the final selection settles.
+- Explicitly out of scope: hidden-result crawling, “Show all,” auto-saving, permissions, storage schema, and Dev Toolz.
+- Primary risks: LinkedIn SPA timing, failed restoration, stale snapshots, and concurrent scan requests.
 - SemVer rationale: forward patch because final review found stale current-job state after the 0.1.7 build.
 
 ### Release identity
