@@ -23,13 +23,13 @@ This is the internal release and recovery record for Dev Toolz.
 
 - Last committed Dev Toolz release: **1.7.19** at `6ef12d5` on 2026-08-28.
 - Current committed Dev Toolz source: **1.8.7** at `fbdf954`; later documentation commits do not change runtime source.
-- Current working-tree candidate: **1.8.7**.
+- Current runtime-verified candidate: **1.8.7**.
 - Git tags: none.
 - Tracked release archives and checksums: none.
 - `apps/dev-toolz/dist` is ignored; its presence is not release evidence.
 - Known rollback source: commit `6ef12d5` for 1.7.19. A known-good packaged artifact has not been recorded.
 
-## v1.8.7 — 2026-08-28 — Build-verified candidate
+## v1.8.7 — 2026-08-28 — Runtime-verified candidate
 
 ### Intent and scope
 
@@ -43,7 +43,7 @@ This is the internal release and recovery record for Dev Toolz.
 - Previous candidate: 1.8.6, superseded before runtime acceptance or release.
 - Source commit: `fbdf954`.
 - Tag, archive, and checksum: pending.
-- Evidence level: build-verified candidate.
+- Evidence level: runtime-verified candidate.
 
 ### Pre-build evidence
 
@@ -55,11 +55,11 @@ This is the internal release and recovery record for Dev Toolz.
 - `git diff --check` passed.
 - `npm run build:dev-toolz` passed once after final source verification: 66 modules transformed.
 - `apps/dev-toolz/dist/manifest.json` reports 1.8.7.
-- Chrome runtime acceptance: pending.
+- Chrome runtime acceptance confirmed by the user: panel behavior remained stable; candidate badges appeared before expansion; complete original Purple steps remained unchanged; candidate review/add behavior worked as expected.
 
 ### Verdict
 
-**Build verified; runtime pending.** Do not call 1.8.7 released before Chrome acceptance and release identity are recorded.
+**Runtime verified; release identity pending.** Do not call 1.8.7 released until tag/archive/checksum policy is completed or explicitly waived.
 
 ## v1.8.6 — 2026-08-28 — Superseded build candidate
 
@@ -364,7 +364,7 @@ The ledger includes every version documented in `apps/dev-toolz/CHANGELOG.md`. �
 | 1.8.4 | 2026-08-28 | Superseded build candidate | Bounded automatic inspection landed; final review found stale current-site cache gaps. |
 | 1.8.5 | 2026-08-28 | Build-verified candidate | Correct current-site invalidation and visible dirty-cache refresh state. |
 | 1.8.6 | 2026-08-28 | Superseded build candidate | Structural matching landed; final review found partial original-step display and an unbounded text-body path. |
-| 1.8.7 | 2026-08-28 | Build-verified candidate | Reuse the complete original flow display and bound every candidate body path. |
+| 1.8.7 | 2026-08-28 | Runtime-verified candidate | Complete original flow display, bounded candidate matching, and Chrome acceptance confirmed. |
 
 ## Release record template
 
