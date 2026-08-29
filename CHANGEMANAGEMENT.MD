@@ -22,14 +22,14 @@ This is the internal release and recovery record for Dev Toolz.
 ## Current repository state
 
 - Last committed Dev Toolz release: **1.7.19** at `6ef12d5` on 2026-08-28.
-- Repository `HEAD`: `03b1829` on 2026-08-28.
+- Repository `HEAD`: `fbdf954` on 2026-08-28.
 - Current working-tree candidate: **1.8.7**.
 - Git tags: none.
 - Tracked release archives and checksums: none.
 - `apps/dev-toolz/dist` is ignored; its presence is not release evidence.
 - Known rollback source: commit `6ef12d5` for 1.7.19. A known-good packaged artifact has not been recorded.
 
-## v1.8.7 — 2026-08-28 — Pending source candidate
+## v1.8.7 — 2026-08-28 — Build-verified candidate
 
 ### Intent and scope
 
@@ -41,10 +41,9 @@ This is the internal release and recovery record for Dev Toolz.
 ### Release identity
 
 - Previous candidate: 1.8.6, superseded before runtime acceptance or release.
-- Source state: uncommitted working tree based on repository `HEAD` `03b1829`.
-- Existing `apps/dev-toolz/dist` remains the superseded 1.8.6 build and is not 1.8.7 evidence.
-- Tag, archive, checksum, source commit, and production build: pending.
-- Evidence level: working-tree candidate.
+- Source commit: `fbdf954`.
+- Tag, archive, and checksum: pending.
+- Evidence level: build-verified candidate.
 
 ### Pre-build evidence
 
@@ -365,7 +364,7 @@ The ledger includes every version documented in `apps/dev-toolz/CHANGELOG.md`. �
 | 1.8.4 | 2026-08-28 | Superseded build candidate | Bounded automatic inspection landed; final review found stale current-site cache gaps. |
 | 1.8.5 | 2026-08-28 | Build-verified candidate | Correct current-site invalidation and visible dirty-cache refresh state. |
 | 1.8.6 | 2026-08-28 | Superseded build candidate | Structural matching landed; final review found partial original-step display and an unbounded text-body path. |
-| 1.8.7 | 2026-08-28 | Working-tree candidate | Reuse the complete original flow display and bound every candidate body path. |
+| 1.8.7 | 2026-08-28 | Build-verified candidate | Reuse the complete original flow display and bound every candidate body path. |
 
 ## Release record template
 
