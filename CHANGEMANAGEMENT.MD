@@ -22,14 +22,83 @@ This is the internal release and recovery record for Dev Toolz.
 ## Current repository state
 
 - Last committed Dev Toolz release: **1.7.19** at `6ef12d5` on 2026-08-28.
-- Repository `HEAD`: `08c16ce685c7` on 2026-08-28; the later commit changed root documentation only.
-- Current working-tree candidate: **1.8.5**.
+- Repository `HEAD`: `03b1829` on 2026-08-28.
+- Current working-tree candidate: **1.8.7**.
 - Git tags: none.
 - Tracked release archives and checksums: none.
 - `apps/dev-toolz/dist` is ignored; its presence is not release evidence.
 - Known rollback source: commit `6ef12d5` for 1.7.19. A known-good packaged artifact has not been recorded.
 
-## v1.8.5 — 2026-08-28 — Pending source candidate
+## v1.8.7 — 2026-08-28 — Pending source candidate
+
+### Intent and scope
+
+- Expected outcome: retain structural Red/Purple candidate matching while showing the complete original Purple flow in its existing order and format.
+- Candidate additions use one inspected-origin lookup, append only after review, reject duplicates, and bound all supported request-body representations.
+- Explicitly out of scope: automatic flow mutation, fuzzy semantic matching, IndexedDB schema, capture formats, and permissions.
+- SemVer rationale: forward patch because 1.8.6 was already built before final review found correctness and bounded-input gaps.
+
+### Release identity
+
+- Previous candidate: 1.8.6, superseded before runtime acceptance or release.
+- Source state: uncommitted working tree based on repository `HEAD` `03b1829`.
+- Existing `apps/dev-toolz/dist` remains the superseded 1.8.6 build and is not 1.8.7 evidence.
+- Tag, archive, checksum, source commit, and production build: pending.
+- Evidence level: working-tree candidate.
+
+### Pre-build evidence
+
+- Package, source manifest, lockfile, changelog, and this record target 1.8.7.
+- `npm run lint` passed.
+- `npm run typecheck` passed.
+- `npm test --workspace @chrome-extensions/dev-toolz` passed: 120 tests across 25 files.
+- `npm run check:version --workspace @chrome-extensions/dev-toolz` passed: version 1.8.7 synchronized.
+- `git diff --check` passed.
+- `npm run build:dev-toolz` passed once after final source verification: 66 modules transformed.
+- `apps/dev-toolz/dist/manifest.json` reports 1.8.7.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Build verified; runtime pending.** Do not call 1.8.7 released before Chrome acceptance and release identity are recorded.
+
+## v1.8.6 — 2026-08-28 — Superseded build candidate
+
+### Intent and scope
+
+- Expected outcome: Red Team Recon visibly marks captured calls matching saved Purple logic before evidence is opened.
+- Matching requires the same origin, method, normalized path, query names, and request-body shape while ignoring dynamic values.
+- Candidate review shows unchanged original Purple steps; adding appends one new captured step only after explicit review.
+- Explicitly out of scope: automatic flow mutation, fuzzy semantic matching, IndexedDB schema, capture formats, and permissions.
+- Primary risks: false candidate matches, malformed captured data, expensive matching, accidental duplicate steps, and version synchronization.
+- SemVer rationale: patch release for backward-compatible Red/Purple workflow guidance.
+
+### Release identity
+
+- Previous candidate: 1.8.5 at `03b1829`, built but not runtime-accepted or released.
+- Source state: uncommitted working tree based on repository `HEAD` `03b1829`.
+- Tag, archive, checksum, source commit, and production build: pending.
+- Evidence level: working-tree candidate.
+
+### Pre-build evidence
+
+- Package, source manifest, lockfile, changelog, and this record target 1.8.6.
+- `npm test --workspace @chrome-extensions/dev-toolz` passed: 120 tests across 25 files.
+- Targeted Purple candidate tests passed after the final body-size hardening: 4 tests.
+- `npm run typecheck --workspace @chrome-extensions/dev-toolz` passed.
+- `npm run lint --workspace @chrome-extensions/dev-toolz` passed.
+- `npm run check:version --workspace @chrome-extensions/dev-toolz` passed: version 1.8.6 synchronized.
+- `git diff --check` passed.
+- Matching fails closed for malformed URLs/bodies, excludes already-added captures, caps input and result work, and never interprets captured values as markup.
+- `npm run build:dev-toolz` passed once after final source verification: 66 modules transformed.
+- `apps/dev-toolz/dist/manifest.json` reports 1.8.6; built assets contain the candidate badge and original-step review paths.
+- Chrome runtime acceptance: pending.
+
+### Verdict
+
+**Superseded before release.** Final review moved the complete original-step display and bounded text-body path into 1.8.7.
+
+## v1.8.5 — 2026-08-28 — Build-verified candidate
 
 ### Intent and scope
 
@@ -41,10 +110,9 @@ This is the internal release and recovery record for Dev Toolz.
 ### Release identity
 
 - Previous candidate: 1.8.4, superseded before release.
-- Source state: uncommitted working tree based on repository `HEAD` `08c16ce685c7`.
-- Tag, archive, checksum, source commit, and production build: pending.
-- Existing `apps/dev-toolz/dist` remains the superseded 1.8.4 build and is not 1.8.5 evidence.
-- Evidence level: working-tree candidate.
+- Source commit: `03b1829`.
+- Tag, archive, and checksum: pending.
+- Evidence level: build-verified candidate.
 
 ### Pre-build evidence
 
@@ -295,7 +363,9 @@ The ledger includes every version documented in `apps/dev-toolz/CHANGELOG.md`. �
 | 1.8.2 | 2026-08-28 | Working-tree candidate | Review-dialog startup contract restored; latency remained. |
 | 1.8.3 | 2026-08-28 | Superseded working-tree candidate | Worker isolation and caching landed; automatic history rescans remained slow. |
 | 1.8.4 | 2026-08-28 | Superseded build candidate | Bounded automatic inspection landed; final review found stale current-site cache gaps. |
-| 1.8.5 | 2026-08-28 | Working-tree candidate | Correct current-site invalidation and visible dirty-cache refresh state. |
+| 1.8.5 | 2026-08-28 | Build-verified candidate | Correct current-site invalidation and visible dirty-cache refresh state. |
+| 1.8.6 | 2026-08-28 | Superseded build candidate | Structural matching landed; final review found partial original-step display and an unbounded text-body path. |
+| 1.8.7 | 2026-08-28 | Working-tree candidate | Reuse the complete original flow display and bound every candidate body path. |
 
 ## Release record template
 

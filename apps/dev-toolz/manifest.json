@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.8.5",
+  "version": "1.8.7",
   "minimum_chrome_version": "118",
   "homepage_url": "https://backroomsoftware.com",
   "description": "API traffic, bounded replay, Purple Team evidence, agent protocols, and Arazzo workflows",

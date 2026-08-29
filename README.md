@@ -59,6 +59,7 @@ Each extension owns its manifest, permissions, assets, source, configuration, an
 - Inspect persistent HTTP, GraphQL, WebSocket, SSE, WebTransport, and media traffic.
 - Export a conservative observed OpenAPI 3.1 draft and compare a local JSON baseline.
 - Send Recon-captured same-origin or cross-origin HTTP(S) API requests into Race Lab.
+- Highlight Recon calls matching saved Purple request logic and review original steps before appending.
 - Manually run a 2–10 request synchronized race with redirect and response-size limits.
 - Build reviewed same-origin Purple journeys and score prevention and detection evidence separately.
 - Compare browser, anonymous, and memory-only Authorization identities with explainable response evidence.
@@ -87,8 +88,8 @@ Cross-origin API requests are accepted only when they came from captured traffic
 
 ## Purple Team workflow
 
-1. Capture a same-origin request, then click **Add to Purple Journey**.
-2. Open **Purple Team → Journey Studio** to order steps and set control expectations.
+1. Capture a same-origin request; matched calls show **Exact Purple logic match** before expansion.
+2. Review unchanged original steps, add the candidate, then open **Purple Team → Journey Studio**.
 3. Review and run the journey in **Proof Runs** or compare identities in **Authorization**.
 4. Inspect linked evidence, export Attack Flow STIX, or exchange the workflow as Arazzo JSON.
 

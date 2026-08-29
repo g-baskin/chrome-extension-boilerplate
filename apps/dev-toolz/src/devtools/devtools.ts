@@ -74,10 +74,12 @@ import { enforceTrafficRetention } from "../lib/traffic-retention";
 import { classifyAuthorizationResponse, createAuthorizationMatrixProfiles, type AuthorizationResponseEvidence } from "../lib/authorization-matrix";
 import { createAttackFlowGraph, exportAttackFlowBundle, type AttackFlowGraph } from "../lib/attack-flow";
 import { inspectAgentTrafficOffThread } from "../lib/agent-inspector-client";
+import { createPurpleCandidateMatcher, type PurpleCandidateMatch, type PurpleCandidateMatcher } from "../lib/purple-candidate";
 import type { AgentProtocolInspection } from "../lib/agent-protocol";
 import { MAX_ARAZZO_IMPORT_BYTES, parseArazzo, serializeArazzo, type LocalOpenApiBaseline } from "../lib/arazzo";
 import {
   createPurpleFlow,
+  MAX_PURPLE_FLOW_STEPS,
   type IdentityProfile,
   type PurpleFlow,
   type PurpleRun,
@@ -129,6 +131,7 @@ interface ReconEndpoint {
   bodyFields: Set<string>;
   identityHeaders: Set<string>;
   samples: ApiExchange[];
+  purpleCandidate: { exchange: ApiExchange; matches: PurpleCandidateMatch[] } | null;
 }
 
 type ToolSection = "log-search" | "traffic" | "red-team" | "purple-team";
@@ -1200,6 +1203,25 @@ function createPurpleCapturedStep(exchange: ApiExchange, origin: string): Purple
   };
 }
 
+async function addCapturedExchangeToPurpleFlow(
+  exchange: ApiExchange,
+  flow: PurpleFlow | null,
+  matchedOrigin?: string
+): Promise<PurpleFlow> {
+  const origin = matchedOrigin ?? await getInspectedPageOrigin();
+  const targetFlow = flow ?? createPurpleFlow("Captured journey", origin);
+  if (targetFlow.origin !== origin) throw new Error("Select a journey for the inspected origin.");
+  if (targetFlow.steps.some(({ capturedRequest }) => capturedRequest.exchangeSequence === exchange.sequence)) {
+    throw new Error("This capture is already in the Purple journey.");
+  }
+  if (targetFlow.steps.length >= MAX_PURPLE_FLOW_STEPS) throw new Error("This Purple journey already has 25 steps.");
+  return savePurpleFlow({
+    ...targetFlow,
+    steps: [...targetFlow.steps, createPurpleCapturedStep(exchange, origin)],
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 function createAddToPurpleJourneyButton(exchange: ApiExchange): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -1208,15 +1230,7 @@ function createAddToPurpleJourneyButton(exchange: ApiExchange): HTMLButtonElemen
     button.disabled = true;
     try {
       if (!purpleLoaded) await loadPurpleFlows();
-      const origin = await getInspectedPageOrigin();
-      let flow = getPurpleFlow(purpleJourneyFlow);
-      if (!flow) flow = createPurpleFlow("Captured journey", origin);
-      if (flow.origin !== origin) throw new Error("Select a journey for the inspected origin.");
-      const saved = await savePurpleFlow({
-        ...flow,
-        steps: [...flow.steps, createPurpleCapturedStep(exchange, origin)],
-        updatedAt: new Date().toISOString(),
-      });
+      const saved = await addCapturedExchangeToPurpleFlow(exchange, getPurpleFlow(purpleJourneyFlow));
       await loadPurpleFlows(saved.id);
       button.textContent = "Added";
     } catch (error) {
@@ -1254,11 +1268,7 @@ function showPurpleReview(summary: string, flow: PurpleFlow, action: () => void,
   pendingPurpleReview = action;
   pendingPurpleReviewCancel = cancel ?? null;
   purpleReviewSummary.textContent = summary;
-  purpleReviewSteps.replaceChildren(...flow.steps.map((step) => {
-    const item = document.createElement("li");
-    item.textContent = `${step.name}: ${step.capturedRequest.method} ${step.capturedRequest.url}`;
-    return item;
-  }));
+  purpleReviewSteps.replaceChildren(...flow.steps.map(createPurpleOriginalStepItem));
   purpleReviewAuthorized.checked = false;
   purpleReviewStart.disabled = true;
   purpleReviewDialog.returnValue = "";
@@ -2524,7 +2534,11 @@ async function refreshReconWorkspace(): Promise<void> {
   reconTableRegion.hidden = true;
   try {
     // simplification: recon materializes history; index routes during capture if datasets outgrow memory.
-    reconExchanges = await getAllApiTraffic();
+    const [exchanges] = await Promise.all([
+      getAllApiTraffic(),
+      purpleLoaded ? Promise.resolve() : loadPurpleFlows(),
+    ]);
+    reconExchanges = exchanges;
     reconLoaded = true;
     renderReconWorkspace();
   } catch {
@@ -2541,7 +2555,8 @@ function renderReconWorkspace(): void {
   const scopedExchanges = currentSiteOnly
     ? reconExchanges.filter((exchange) => matchesSite(exchange, currentPageHostname))
     : reconExchanges;
-  const endpoints = createReconEndpoints(scopedExchanges);
+  const matchPurpleCandidate = createPurpleCandidateMatcher(purpleFlows);
+  const endpoints = createReconEndpoints(scopedExchanges, matchPurpleCandidate);
   reconCount.textContent = `${endpoints.length} endpoints · ${scopedExchanges.length} exchanges`;
 
   if (currentSiteOnly && !currentPageHostname) {
@@ -2703,7 +2718,10 @@ function getEndpointKey(rawUrl: string): string {
   }
 }
 
-function createReconEndpoints(exchanges: ApiExchange[]): ReconEndpoint[] {
+function createReconEndpoints(
+  exchanges: ApiExchange[],
+  matchPurpleCandidate: PurpleCandidateMatcher
+): ReconEndpoint[] {
   const endpoints = new Map<string, ReconEndpoint>();
   for (const exchange of exchanges) {
     const target = getReconTarget(exchange.request.url);
@@ -2722,6 +2740,7 @@ function createReconEndpoints(exchanges: ApiExchange[]): ReconEndpoint[] {
         bodyFields: new Set(),
         identityHeaders: new Set(),
         samples: [],
+        purpleCandidate: null,
       };
       endpoints.set(key, endpoint);
     }
@@ -2729,6 +2748,10 @@ function createReconEndpoints(exchanges: ApiExchange[]): ReconEndpoint[] {
     endpoint.statuses.add(exchange.response.status);
     collectReconSignals(endpoint, exchange);
     if (endpoint.samples.length === 0) endpoint.samples.push(exchange);
+    if (!endpoint.purpleCandidate) {
+      const matches = matchPurpleCandidate(exchange);
+      if (matches.length) endpoint.purpleCandidate = { exchange, matches };
+    }
   }
   return [...endpoints.values()].sort(
     (left, right) => right.requestCount - left.requestCount || left.route.localeCompare(right.route)
@@ -2827,8 +2850,12 @@ function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {
   const routeCode = createLogFilterButton("path", latestPath, endpoint.route, "api", sampleRecord);
   routeCode.classList.add("recon-route");
   route.appendChild(routeCode);
-  const latestExchange = endpoint.samples[0];
-  if (latestExchange) route.appendChild(createReconEvidence(latestExchange));
+  const selectedExchange = endpoint.purpleCandidate?.exchange ?? endpoint.samples[0];
+  const purpleMatches = endpoint.purpleCandidate?.matches ?? [];
+  if (selectedExchange) {
+    if (purpleMatches.length) route.appendChild(createPurpleCandidateBadge(purpleMatches));
+    route.appendChild(createReconEvidence(selectedExchange, purpleMatches));
+  }
 
   const requests = document.createElement("td");
   requests.textContent = String(endpoint.requestCount);
@@ -2851,11 +2878,81 @@ function createReconEndpointRow(endpoint: ReconEndpoint): HTMLTableRowElement {
   return row;
 }
 
-function createReconEvidence(exchange: ApiExchange): HTMLDetailsElement {
+function createPurpleCandidateBadge(matches: readonly PurpleCandidateMatch[]): HTMLSpanElement {
+  const badge = document.createElement("span");
+  badge.className = "purple-candidate-badge";
+  badge.textContent = `Exact Purple logic match · ${matches.length}`;
+  const labels = matches.slice(0, 5).map(({ flowName, step }) => `${flowName}: ${step.name}`);
+  badge.title = `${labels.join("\n")}${matches.length > labels.length ? `\n+${matches.length - labels.length} more` : ""}`;
+  return badge;
+}
+
+function createPurpleOriginalStepItem(step: PurpleStep): HTMLLIElement {
+  const item = document.createElement("li");
+  item.textContent = `${step.name}: ${step.capturedRequest.method} ${step.capturedRequest.url}`;
+  return item;
+}
+
+function createPurpleCandidateReview(
+  exchange: ApiExchange,
+  matches: readonly PurpleCandidateMatch[]
+): HTMLElement {
+  const review = document.createElement("section");
+  review.className = "purple-candidate-review";
+  const heading = document.createElement("strong");
+  heading.textContent = "Exact Purple logic match";
+  const explanation = document.createElement("p");
+  explanation.textContent = "Same origin, method, normalized path, query names, and body shape. Original Purple steps remain unchanged.";
+  review.append(heading, explanation);
+
+  const matchesByFlow = new Map<string, PurpleCandidateMatch[]>();
+  for (const match of matches) {
+    const grouped = matchesByFlow.get(match.flowId);
+    if (grouped) grouped.push(match);
+    else matchesByFlow.set(match.flowId, [match]);
+  }
+
+  for (const [flowId, flowMatches] of matchesByFlow) {
+    const flow = purpleFlows.find(({ id }) => id === flowId);
+    if (!flow) continue;
+    const flowName = document.createElement("p");
+    flowName.className = "purple-candidate-flow";
+    const matchedSteps = flowMatches.map(({ stepIndex }) => stepIndex + 1).join(", ");
+    flowName.textContent = `${flow.name} · candidate matches step${flowMatches.length === 1 ? "" : "s"} ${matchedSteps}`;
+    const originals = document.createElement("ol");
+    originals.className = "purple-candidate-originals";
+    originals.replaceChildren(...flow.steps.map(createPurpleOriginalStepItem));
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = `Add candidate to ${flow.name}`;
+    add.disabled = flow.steps.length >= MAX_PURPLE_FLOW_STEPS;
+    if (add.disabled) add.title = "This Purple journey already has 25 steps.";
+    add.addEventListener("click", async () => {
+      add.disabled = true;
+      try {
+        const currentFlow = purpleFlows.find(({ id }) => id === flowId);
+        if (!currentFlow) throw new Error("The matched Purple journey no longer exists.");
+        const saved = await addCapturedExchangeToPurpleFlow(exchange, currentFlow, currentFlow.origin);
+        await loadPurpleFlows(saved.id);
+        add.textContent = "Added without changing original steps";
+      } catch (error) {
+        add.textContent = error instanceof Error ? error.message : "Could not add candidate";
+        add.disabled = false;
+      }
+    });
+    review.append(flowName, originals, add);
+  }
+  return review;
+}
+
+function createReconEvidence(
+  exchange: ApiExchange,
+  purpleMatches: readonly PurpleCandidateMatch[]
+): HTMLDetailsElement {
   const details = document.createElement("details");
   details.className = "recon-evidence";
   const summary = document.createElement("summary");
-  summary.textContent = "Inspect latest captured exchange";
+  summary.textContent = purpleMatches.length ? "Review Purple candidate" : "Inspect latest captured exchange";
   details.appendChild(summary);
   details.addEventListener("toggle", () => {
     if (!details.open || details.childElementCount > 1) return;
@@ -2870,12 +2967,13 @@ function createReconEvidence(exchange: ApiExchange): HTMLDetailsElement {
     actions.className = "actions";
     actions.append(
       createCopyButton("Copy request URL", exchange.request.url),
-      createAddToFlowButton(exchange),
-      createAddToPurpleJourneyButton(exchange)
+      createAddToFlowButton(exchange)
     );
+    if (!purpleMatches.length) actions.appendChild(createAddToPurpleJourneyButton(exchange));
     details.append(
       metadata,
       url,
+      ...(purpleMatches.length ? [createPurpleCandidateReview(exchange, purpleMatches)] : []),
       actions,
       createDetails("Outgoing request", exchange.request.headers, exchange.request.body),
       createDetails("Incoming response", exchange.response.headers, exchange.response.body)

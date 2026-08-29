@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.8.7] - 2026-08-28
+
+### Fixed
+
+- Reused the exact complete Purple step list in candidate review instead of showing matched steps only.
+- Removed a duplicate inspected-origin lookup and bounded text-body candidate matching.
+
+## [1.8.6] - 2026-08-28
+
+### Added
+
+- Highlighted Red Team Recon API calls that structurally match saved Purple steps before opening their evidence.
+- Added an explicit candidate review showing unchanged original Purple steps before appending a captured call.
+
 ## [1.8.5] - 2026-08-28
 
 ### Fixed
