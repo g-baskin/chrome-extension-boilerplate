@@ -4,6 +4,7 @@ import { isSiteAllowed, normalizeSiteRule } from "@/lib/site-access";
 import { getApiTrafficPauseStatus, setApiTrafficPause } from "@/lib/api-traffic-pause";
 import { captureTab, stopApiTrafficCapture } from "./api-traffic-capture";
 import { cancelRaceFlow, runRaceFlow } from "./race-runner";
+import { cancelPurpleFlow, runPurpleFlow } from "./purple-runner";
 
 const API_TRAFFIC_ALARM_PREFIX = "api-traffic-resume:";
 const tabStatusRevisions = new Map<number, number>();
@@ -105,6 +106,10 @@ createMessageHandler({
   RUN_RACE_FLOW: async (payload) => runRaceFlow(payload),
 
   CANCEL_RACE_FLOW: async ({ tabId, runId }) => cancelRaceFlow(tabId, runId),
+
+  RUN_PURPLE_FLOW: async (payload) => runPurpleFlow(payload),
+
+  CANCEL_PURPLE_FLOW: async ({ tabId, runId }) => cancelPurpleFlow(tabId, runId),
 
   SET_API_CAPTURE_PAUSE: async ({ tabId, durationMs }) => {
     if (![0, 300_000, 900_000, 3_600_000, null].includes(durationMs)) {

@@ -17,6 +17,9 @@
       <button id="show-red-team-section" type="button" aria-pressed="false" aria-controls="red-team-section">
         Red Team
       </button>
+      <button id="show-purple-team-section" type="button" aria-pressed="false" aria-controls="purple-team-section">
+        Purple Team
+      </button>
     </nav>
     <section id="log-search-section" class="tool-section">
       <header>
@@ -362,6 +365,113 @@
         <section id="race-results" aria-live="polite"></section>
       </div>
     </section>
+
+    <section id="purple-team-section" class="tool-section" hidden>
+      <header>
+        <div>
+          <h1>Purple Team</h1>
+          <p>Connect reviewed journeys, replay evidence, authorization checks, and portable workflows.</p>
+        </div>
+      </header>
+      <nav class="section-nav purple-team-nav" aria-label="Purple Team tools">
+        <button id="show-purple-proof-tool" type="button" aria-pressed="true">Proof Runs</button>
+        <button id="show-purple-authorization-tool" type="button" aria-pressed="false">Authorization</button>
+        <button id="show-purple-attack-flow-tool" type="button" aria-pressed="false">Attack Flow</button>
+        <button id="show-purple-agent-tool" type="button" aria-pressed="false">Agent Inspector</button>
+        <button id="show-purple-journey-tool" type="button" aria-pressed="false">Journey Studio</button>
+      </nav>
+
+      <div id="purple-proof-tool" class="purple-tool">
+        <div class="recon-controls">
+          <label>Saved journey<select id="purple-proof-flow"><option value="">No saved journeys</option></select></label>
+          <label>Identity<select id="purple-proof-identity"><option value="browser">Current browser session</option><option value="anonymous">Anonymous</option></select></label>
+          <button id="purple-proof-review" type="button" disabled>Review run</button>
+          <button id="purple-proof-cancel" type="button" hidden>Cancel run</button>
+          <button id="purple-proof-export" type="button" disabled>Export report</button>
+        </div>
+        <p class="analysis-help">Runs only reviewed captures against the inspected page’s current origin.</p>
+        <p id="purple-proof-state" class="empty-state" role="status" aria-live="polite">Select a journey to review its exact origin and steps.</p>
+        <div id="purple-proof-region" class="table-scroll purple-table-region" role="region" aria-label="Purple proof outcomes" tabindex="0" hidden>
+          <table><caption>Prevention and detection outcomes</caption><thead><tr><th scope="col">Step</th><th scope="col">Prevention</th><th scope="col">Detection</th><th scope="col">Evidence</th></tr></thead><tbody id="purple-proof-results"></tbody></table>
+        </div>
+      </div>
+
+      <div id="purple-authorization-tool" class="purple-tool" hidden>
+        <div class="recon-controls">
+          <label>Saved journey<select id="purple-auth-flow"><option value="">No saved journeys</option></select></label>
+          <label>Identity name<input id="purple-auth-name" type="text" maxlength="80" autocomplete="off" placeholder="Admin" /></label>
+          <label>Authorization value<input id="purple-auth-secret" type="password" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="Bearer token" /></label>
+          <button id="purple-auth-add" type="button">Add identity</button>
+          <button id="purple-auth-run" type="button" disabled>Review comparison</button>
+          <button id="purple-auth-cancel" type="button" hidden>Cancel comparison</button>
+        </div>
+        <p class="analysis-help">Values stay in this panel only for the current comparison and clear afterward.</p>
+        <p id="purple-auth-state" class="empty-state" role="status" aria-live="polite">Add two named identities, then select a journey.</p>
+        <div class="purple-split">
+          <ol id="purple-auth-identities" class="purple-list" aria-label="Comparison identities"></ol>
+          <div id="purple-auth-region" class="table-scroll purple-table-region" role="region" aria-label="Authorization comparison matrix" tabindex="0" hidden>
+            <table><caption>Authorization response evidence</caption><thead><tr><th scope="col">Identity</th><th scope="col">Classification</th><th scope="col">Evidence</th></tr></thead><tbody id="purple-auth-results"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <div id="purple-attack-flow-tool" class="purple-tool" hidden>
+        <div class="recon-controls">
+          <label>Saved journey<select id="purple-attack-flow"><option value="">No saved journeys</option></select></label>
+          <label>ATT&amp;CK tactic ID<input id="purple-attack-tactic" type="text" maxlength="64" placeholder="TA0001" /></label>
+          <label>Tactic name<input id="purple-attack-tactic-name" type="text" maxlength="120" placeholder="Initial Access" /></label>
+          <label>Technique ID<input id="purple-attack-technique" type="text" maxlength="64" placeholder="T1190" /></label>
+          <label>Technique name<input id="purple-attack-technique-name" type="text" maxlength="120" placeholder="Exploit Public-Facing Application" /></label>
+          <button id="purple-attack-annotate" type="button" disabled>Apply to selected step</button>
+          <button id="purple-attack-export" type="button" disabled>Export STIX 2.1</button>
+        </div>
+        <p id="purple-attack-state" class="empty-state" role="status" aria-live="polite">Select a journey to build its causal graph.</p>
+        <div id="purple-attack-workspace" class="purple-graph-workspace" hidden>
+          <svg id="purple-attack-graph" class="purple-graph" viewBox="0 0 960 320" role="img" aria-labelledby="purple-attack-graph-title purple-attack-graph-description">
+            <title id="purple-attack-graph-title">Attack flow graph</title>
+            <desc id="purple-attack-graph-description">Ordered journey actions, assets, and proof conditions. Details follow the graph.</desc>
+          </svg>
+          <ol id="purple-attack-details" class="purple-list" aria-label="Attack flow details"></ol>
+        </div>
+      </div>
+
+      <div id="purple-agent-tool" class="purple-tool" hidden>
+        <div class="recon-controls">
+          <label>Evidence scope<select id="purple-agent-scope"><option value="current">Current site</option><option value="all">All captured history</option></select></label>
+          <button id="purple-agent-refresh" type="button">Refresh inspector</button>
+        </div>
+        <p class="analysis-help">Passive local decoding only. Dev Toolz never follows agent links or invokes tools.</p>
+        <p id="purple-agent-state" class="empty-state" role="status" aria-live="polite">Open the inspector to classify captured MCP and A2A evidence.</p>
+        <div class="purple-split">
+          <section aria-labelledby="purple-agent-capabilities-heading"><h2 id="purple-agent-capabilities-heading">Capabilities and signals</h2><ul id="purple-agent-capabilities" class="purple-list"></ul></section>
+          <section aria-labelledby="purple-agent-timeline-heading"><h2 id="purple-agent-timeline-heading">Evidence timeline</h2><ol id="purple-agent-timeline" class="purple-list"></ol></section>
+        </div>
+      </div>
+
+      <div id="purple-journey-tool" class="purple-tool" hidden>
+        <div class="recon-controls">
+          <label>Saved journey<select id="purple-journey-flow"><option value="">No saved journeys</option></select></label>
+          <label>Journey name<input id="purple-journey-name" type="text" maxlength="80" placeholder="Account review" /></label>
+          <button id="purple-journey-create" type="button">Create journey</button>
+          <button id="purple-journey-save" type="button" disabled>Save name</button>
+          <button id="purple-journey-delete" type="button" disabled>Delete</button>
+          <label class="file-button">Import Arazzo JSON<input id="purple-journey-import" type="file" accept="application/json,.json" /></label>
+          <button id="purple-journey-export" type="button" disabled>Export Arazzo JSON</button>
+        </div>
+        <p id="purple-journey-state" class="empty-state" role="status" aria-live="polite">Create a journey or add a captured request from API Traffic.</p>
+        <ol id="purple-journey-steps" class="purple-list purple-journey-steps" aria-label="Journey steps"></ol>
+      </div>
+    </section>
+
+    <dialog id="purple-review-dialog" aria-labelledby="purple-review-heading" aria-describedby="purple-review-summary">
+      <form method="dialog" class="purple-review-dialog">
+        <h2 id="purple-review-heading">Confirm authorized run</h2>
+        <p id="purple-review-summary"></p>
+        <ol id="purple-review-steps" class="purple-list"></ol>
+        <label class="purple-confirm"><input id="purple-review-authorized" type="checkbox" /> I own this site or have permission to test it.</label>
+        <div class="purple-dialog-actions"><button type="submit" value="cancel">Cancel</button><button id="purple-review-start" type="submit" value="confirm" disabled>Run reviewed steps</button></div>
+      </form>
+    </dialog>
     <script type="module" src="./devtools.ts"></script>
   </body>
 </html>

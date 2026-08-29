@@ -1,8 +1,10 @@
 export const TRAFFIC_DATABASE_NAME = "dev-toolz";
-export const TRAFFIC_DATABASE_VERSION = 3;
+export const TRAFFIC_DATABASE_VERSION = 4;
 export const API_TRAFFIC_STORE = "api-traffic";
 export const PROTOCOL_EVENTS_STORE = "protocol-events";
 export const RACE_FLOWS_STORE = "race-flows";
+export const PURPLE_FLOWS_STORE = "purple-flows";
+export const PURPLE_RUNS_STORE = "purple-runs";
 export const API_LOG_TIME_INDEX = "log-time";
 export const PROTOCOL_LOG_TIME_INDEX = "log-time";
 
@@ -33,6 +35,12 @@ export function openTrafficDatabase(): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(RACE_FLOWS_STORE)) {
         database.createObjectStore(RACE_FLOWS_STORE, { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains(PURPLE_FLOWS_STORE)) {
+        database.createObjectStore(PURPLE_FLOWS_STORE, { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains(PURPLE_RUNS_STORE)) {
+        database.createObjectStore(PURPLE_RUNS_STORE, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);

@@ -581,6 +581,10 @@ function normalizeHarTiming(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+export function normalizeHttpVersion(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.slice(0, 20) : "unknown";
+}
+
 export function saveHarEntry(
   entry: chrome.devtools.network.Request,
   pageUrl: string,
@@ -622,7 +626,7 @@ export function saveHarEntry(
         resourceType,
         transferSize,
         network: {
-          protocol: entry.response.httpVersion.slice(0, 20),
+          protocol: normalizeHttpVersion(entry.response.httpVersion),
           connectionId: entry.connection?.slice(0, 100),
           connectionSetup: normalizeHarTiming(entry.timings.connect) === undefined
             ? "reused-or-unavailable"

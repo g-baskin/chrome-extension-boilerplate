@@ -60,6 +60,10 @@ Each extension owns its manifest, permissions, assets, source, configuration, an
 - Export a conservative observed OpenAPI 3.1 draft and compare a local JSON baseline.
 - Send Recon-captured same-origin or cross-origin HTTP(S) API requests into Race Lab.
 - Manually run a 2–10 request synchronized race with redirect and response-size limits.
+- Build reviewed same-origin Purple journeys and score prevention and detection evidence separately.
+- Compare browser, anonymous, and memory-only Authorization identities with explainable response evidence.
+- Export journey workflows as Arazzo 1.1 JSON and causal graphs as Attack Flow STIX 2.1.
+- Passively inspect captured MCP and A2A timelines without following links or invoking tools.
 - Keep redaction enabled by default for sensitive URLs, headers, bodies, and protocol payloads.
 - Temporarily disable redaction in **Options → Redaction coverage** to inspect raw new captures.
 - Use active testing only on sites you own or are authorized to assess.
@@ -80,6 +84,15 @@ Each extension owns its manifest, permissions, assets, source, configuration, an
 4. Open **Race Lab**, choose the race step and concurrency, then run it.
 
 Cross-origin API requests are accepted only when they came from captured traffic on the inspected page. Edited steps and non-HTTP(S) targets are rejected. Browser CORS and cookie policies still apply.
+
+## Purple Team workflow
+
+1. Capture a same-origin request, then click **Add to Purple Journey**.
+2. Open **Purple Team → Journey Studio** to order steps and set control expectations.
+3. Review and run the journey in **Proof Runs** or compare identities in **Authorization**.
+4. Inspect linked evidence, export Attack Flow STIX, or exchange the workflow as Arazzo JSON.
+
+Authorization values are accepted only immediately before a comparison, remain masked, and are discarded after completion or cancellation. Purple replay rejects changed pages, stale captures, redirects, disallowed sites, and cross-origin steps.
 
 ## Redaction coverage
 

@@ -30,6 +30,7 @@ import {
   countApiTrafficForPage,
   detectMediaKind,
   getAllApiTraffic,
+  getApiTrafficBySequence,
   getApiTrafficPage,
   getMediaRole,
   matchesApiTraffic,
@@ -70,6 +71,25 @@ import {
 } from "../lib/log-search";
 import { queryLogHistoryOffThread } from "../lib/log-history-client";
 import { enforceTrafficRetention } from "../lib/traffic-retention";
+import { classifyAuthorizationResponse, createAuthorizationMatrixProfiles, type AuthorizationResponseEvidence } from "../lib/authorization-matrix";
+import { createAttackFlowGraph, exportAttackFlowBundle, type AttackFlowGraph } from "../lib/attack-flow";
+import { inspectAgentTrafficOffThread } from "../lib/agent-inspector-client";
+import type { AgentProtocolInspection } from "../lib/agent-protocol";
+import { MAX_ARAZZO_IMPORT_BYTES, parseArazzo, serializeArazzo, type LocalOpenApiBaseline } from "../lib/arazzo";
+import {
+  createPurpleFlow,
+  type IdentityProfile,
+  type PurpleFlow,
+  type PurpleRun,
+  type PurpleStep,
+} from "../lib/purple-flow";
+import {
+  deletePurpleFlow,
+  getPurpleFlows,
+  getPurpleRunSummaries,
+  savePurpleFlow,
+  savePurpleRunSummary,
+} from "../lib/purple-flow-store";
 import {
   extractGraphqlOperation,
   getProtocolEvents,
@@ -111,8 +131,9 @@ interface ReconEndpoint {
   samples: ApiExchange[];
 }
 
-type ToolSection = "log-search" | "traffic" | "red-team";
+type ToolSection = "log-search" | "traffic" | "red-team" | "purple-team";
 type RedTeamTool = "recon" | "protocols" | "api-map" | "race-lab";
+type PurpleTeamTool = "proof" | "authorization" | "attack-flow" | "agent" | "journey";
 
 const logSearchSection = requireElement("log-search-section");
 const logSearchForm = requireForm("log-search-form");
@@ -158,9 +179,11 @@ const connectionFilter = requireSelect("filter-connection");
 const resetFilters = requireButton("reset-filters");
 const trafficSection = requireElement("traffic-section");
 const redTeamSection = requireElement("red-team-section");
+const purpleTeamSection = requireElement("purple-team-section");
 const showLogSearchSection = requireButton("show-log-search-section");
 const showTrafficSection = requireButton("show-traffic-section");
 const showRedTeamSection = requireButton("show-red-team-section");
+const showPurpleTeamSection = requireButton("show-purple-team-section");
 const refreshRecon = requireButton("refresh-recon");
 const reconScope = requireSelect("recon-scope");
 const reconGrouping = requireSelect("recon-grouping");
@@ -173,6 +196,13 @@ const redTeamTools: Record<RedTeamTool, { button: HTMLButtonElement; panel: HTML
   protocols: { button: requireButton("show-protocols-tool"), panel: requireElement("protocols-tool") },
   "api-map": { button: requireButton("show-api-map-tool"), panel: requireElement("api-map-tool") },
   "race-lab": { button: requireButton("show-race-lab-tool"), panel: requireElement("race-lab-tool") },
+};
+const purpleTeamTools: Record<PurpleTeamTool, { button: HTMLButtonElement; panel: HTMLElement }> = {
+  proof: { button: requireButton("show-purple-proof-tool"), panel: requireElement("purple-proof-tool") },
+  authorization: { button: requireButton("show-purple-authorization-tool"), panel: requireElement("purple-authorization-tool") },
+  "attack-flow": { button: requireButton("show-purple-attack-flow-tool"), panel: requireElement("purple-attack-flow-tool") },
+  agent: { button: requireButton("show-purple-agent-tool"), panel: requireElement("purple-agent-tool") },
+  journey: { button: requireButton("show-purple-journey-tool"), panel: requireElement("purple-journey-tool") },
 };
 const protocolForm = requireForm("protocol-filters");
 const protocolScope = requireSelect("protocol-scope");
@@ -207,9 +237,58 @@ const raceCancel = requireButton("race-cancel");
 const raceState = requireElement("race-state");
 const raceSteps = requireElement("race-steps");
 const raceResults = requireElement("race-results");
+const purpleProofFlow = requireSelect("purple-proof-flow");
+const purpleProofIdentity = requireSelect("purple-proof-identity");
+const purpleProofReview = requireButton("purple-proof-review");
+const purpleProofCancel = requireButton("purple-proof-cancel");
+const purpleProofExport = requireButton("purple-proof-export");
+const purpleProofState = requireElement("purple-proof-state");
+const purpleProofRegion = requireElement("purple-proof-region");
+const purpleProofResults = requireElement("purple-proof-results");
+const purpleAuthFlow = requireSelect("purple-auth-flow");
+const purpleAuthName = requireInput("purple-auth-name");
+const purpleAuthSecret = requireInput("purple-auth-secret");
+const purpleAuthAdd = requireButton("purple-auth-add");
+const purpleAuthRun = requireButton("purple-auth-run");
+const purpleAuthCancel = requireButton("purple-auth-cancel");
+const purpleAuthState = requireElement("purple-auth-state");
+const purpleAuthIdentities = requireElement("purple-auth-identities");
+const purpleAuthRegion = requireElement("purple-auth-region");
+const purpleAuthResults = requireElement("purple-auth-results");
+const purpleAttackFlow = requireSelect("purple-attack-flow");
+const purpleAttackTactic = requireInput("purple-attack-tactic");
+const purpleAttackTacticName = requireInput("purple-attack-tactic-name");
+const purpleAttackTechnique = requireInput("purple-attack-technique");
+const purpleAttackTechniqueName = requireInput("purple-attack-technique-name");
+const purpleAttackAnnotate = requireButton("purple-attack-annotate");
+const purpleAttackExport = requireButton("purple-attack-export");
+const purpleAttackState = requireElement("purple-attack-state");
+const purpleAttackWorkspace = requireElement("purple-attack-workspace");
+const purpleAttackGraph = requireSvg("purple-attack-graph");
+const purpleAttackDetails = requireElement("purple-attack-details");
+const purpleAgentScope = requireSelect("purple-agent-scope");
+const purpleAgentRefresh = requireButton("purple-agent-refresh");
+const purpleAgentState = requireElement("purple-agent-state");
+const purpleAgentCapabilities = requireElement("purple-agent-capabilities");
+const purpleAgentTimeline = requireElement("purple-agent-timeline");
+const purpleJourneyFlow = requireSelect("purple-journey-flow");
+const purpleJourneyName = requireInput("purple-journey-name");
+const purpleJourneyCreate = requireButton("purple-journey-create");
+const purpleJourneySave = requireButton("purple-journey-save");
+const purpleJourneyDelete = requireButton("purple-journey-delete");
+const purpleJourneyImport = requireInput("purple-journey-import");
+const purpleJourneyExport = requireButton("purple-journey-export");
+const purpleJourneyState = requireElement("purple-journey-state");
+const purpleJourneySteps = requireElement("purple-journey-steps");
+const purpleReviewDialog = requireDialog("purple-review-dialog");
+const purpleReviewSummary = requireElement("purple-review-summary");
+const purpleReviewSteps = requireElement("purple-review-steps");
+const purpleReviewAuthorized = requireInput("purple-review-authorized");
+const purpleReviewStart = requireButton("purple-review-start");
 let totalCount = 0;
 let oldestSequence: number | null = null;
 let currentPageHostname = "";
+let currentPageOrigin = "";
 let activeFilters = readFilters();
 let displayedExchanges: ApiExchange[] = [];
 let groupingMode: "nearby" | "site" | null = null;
@@ -238,6 +317,7 @@ let starWritePending = false;
 let reconLoaded = false;
 let reconExchanges: ApiExchange[] = [];
 let activeRedTeamTool: RedTeamTool = "recon";
+let activePurpleTeamTool: PurpleTeamTool = "proof";
 let protocolLoaded = false;
 let displayedProtocolEvents: ProtocolEvent[] = [];
 let oldestProtocolSequence: number | null = null;
@@ -247,6 +327,20 @@ let apiMapBaseline: OpenApiDocument | null = null;
 let raceFlows: RaceFlow[] = [];
 let raceLoaded = false;
 let activeRaceRunId: string | null = null;
+let purpleFlows: PurpleFlow[] = [];
+let purpleLoaded = false;
+let purpleAgentLoaded = false;
+let purpleAgentDirty = false;
+let purpleAgentDataRevision = 0;
+let purpleAgentLastSummary = "";
+let purpleAgentAbort: AbortController | null = null;
+let activePurpleRunId: string | null = null;
+let lastPurpleRun: PurpleRun | null = null;
+let currentAttackGraph: AttackFlowGraph | null = null;
+let selectedAttackStepId: string | null = null;
+let pendingPurpleReview: (() => void) | null = null;
+let pendingPurpleReviewCancel: (() => void) | null = null;
+let purpleIdentities: Array<{ profile: IdentityProfile; value: string }> = [];
 
 showLogSearchSection.addEventListener("click", () => {
   setActiveSection("log-search");
@@ -257,6 +351,10 @@ showTrafficSection.addEventListener("click", () => setActiveSection("traffic"));
 showRedTeamSection.addEventListener("click", () => {
   setActiveSection("red-team");
   if (!reconLoaded) void refreshReconWorkspace();
+});
+showPurpleTeamSection.addEventListener("click", () => {
+  setActiveSection("purple-team");
+  void setActivePurpleTeamTool(activePurpleTeamTool);
 });
 logSearchForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -275,6 +373,9 @@ reconScope.addEventListener("change", renderReconWorkspace);
 reconGrouping.addEventListener("change", renderReconWorkspace);
 for (const [tool, controls] of Object.entries(redTeamTools)) {
   controls.button.addEventListener("click", () => void setActiveRedTeamTool(tool as RedTeamTool));
+}
+for (const [tool, controls] of Object.entries(purpleTeamTools)) {
+  controls.button.addEventListener("click", () => void setActivePurpleTeamTool(tool as PurpleTeamTool));
 }
 protocolForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -300,6 +401,43 @@ raceFlowName.addEventListener("input", renderRaceLab);
 raceRun.addEventListener("click", () => void reviewAndRunRace());
 raceCancel.addEventListener("click", () => void cancelActiveRace());
 raceResults.replaceChildren();
+purpleProofFlow.addEventListener("change", renderPurpleProof);
+purpleProofIdentity.addEventListener("change", renderPurpleProof);
+purpleProofReview.addEventListener("click", () => reviewPurpleProof());
+purpleProofCancel.addEventListener("click", () => void cancelPurpleRun());
+purpleProofExport.addEventListener("click", exportPurpleReport);
+purpleAuthFlow.addEventListener("change", renderPurpleAuthorization);
+purpleAuthAdd.addEventListener("click", addPurpleIdentity);
+purpleAuthRun.addEventListener("click", () => reviewPurpleAuthorization());
+purpleAuthCancel.addEventListener("click", () => void cancelPurpleRun());
+purpleAttackFlow.addEventListener("change", () => void renderPurpleAttackFlow());
+purpleAttackAnnotate.addEventListener("click", () => void annotatePurpleAttackStep());
+purpleAttackExport.addEventListener("click", exportPurpleAttackFlow);
+purpleAgentScope.addEventListener("change", () => {
+  resetPurpleAgentInspection();
+  void refreshPurpleAgentInspector();
+});
+purpleAgentRefresh.addEventListener("click", () => void refreshPurpleAgentInspector(true));
+purpleJourneyFlow.addEventListener("change", renderPurpleJourney);
+purpleJourneyName.addEventListener("input", renderPurpleJourney);
+purpleJourneyCreate.addEventListener("click", () => void createPurpleJourney());
+purpleJourneySave.addEventListener("click", () => void renamePurpleJourney());
+purpleJourneyDelete.addEventListener("click", () => void removePurpleJourney());
+purpleJourneyImport.addEventListener("change", () => void importPurpleJourney());
+purpleJourneyExport.addEventListener("click", exportPurpleJourney);
+purpleReviewAuthorized.addEventListener("change", () => { purpleReviewStart.disabled = !purpleReviewAuthorized.checked; });
+purpleReviewDialog.addEventListener("close", () => {
+  const confirmed = purpleReviewDialog.returnValue === "confirm" && purpleReviewAuthorized.checked;
+  const action = confirmed ? pendingPurpleReview : null;
+  const cancel = confirmed ? null : pendingPurpleReviewCancel;
+  pendingPurpleReview = null;
+  pendingPurpleReviewCancel = null;
+  purpleReviewAuthorized.checked = false;
+  purpleReviewStart.disabled = true;
+  purpleReviewDialog.returnValue = "";
+  cancel?.();
+  action?.();
+});
 fieldSearch.addEventListener("input", () => {
   updateFieldSearchActions();
   renderFieldSidebar();
@@ -310,11 +448,23 @@ fieldSearch.addEventListener("keydown", (event) => {
 fieldSearchApply.addEventListener("click", applyFieldSearch);
 fieldSearchClear.addEventListener("click", clearFieldSearch);
 
-void initializePanel();
+void initializePanel().catch((error: unknown) => {
+  console.error("[Dev Toolz] Panel initialization failed", error instanceof Error ? error.message : "Unknown error");
+  logSearchStatus.textContent = "Stored events could not be loaded. Reload Dev Toolz to retry.";
+  emptyState.textContent = "API traffic could not be loaded. Reload Dev Toolz to retry.";
+  requestList.replaceChildren(emptyState);
+  for (const control of [logCaptureSite, captureSite]) {
+    control.replaceChildren(createOption("", "Current site unavailable"));
+    control.disabled = true;
+  }
+  const currentSiteOption = scopeFilter.querySelector<HTMLOptionElement>('option[value="current"]');
+  if (currentSiteOption) currentSiteOption.textContent = "Current site unavailable";
+});
 
 chrome.runtime.onMessage.addListener((message: unknown) => {
   if (isProtocolCapturedMessage(message)) {
     streamLogRecord(createProtocolLogRecord(message.payload));
+    markPurpleAgentDataChanged();
     if (protocolLoaded && matchesProtocolEvent(message.payload, readProtocolFilters())) {
       displayedProtocolEvents.unshift(message.payload);
       if (activeSection === "red-team" && activeRedTeamTool === "protocols") renderProtocolWorkspace();
@@ -322,6 +472,7 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
     return false;
   }
   if (!isCapturedMessage(message)) return false;
+  markPurpleAgentDataChanged();
   if (message.sessionRequestUrl && isHttpUrl(message.sessionRequestUrl)) {
     sessionManifestUrls.set(message.payload.sequence, {
       url: message.sessionRequestUrl,
@@ -415,6 +566,7 @@ clearResponses.addEventListener("click", async () => {
       await clearApiTraffic();
       sessionManifestUrls.clear();
     }
+    markPurpleAgentDataChanged();
     totalCount = await countApiTraffic();
     updateCount();
     await resetDisplayedTraffic();
@@ -476,6 +628,7 @@ resetFilters.addEventListener("click", () => {
 
 chrome.devtools.network.onNavigated.addListener((url) => {
   currentPageHostname = getHostname(url);
+  currentPageOrigin = getOrigin(url);
   updateScopeActions();
   void refreshCaptureStatus();
   if (scopeFilter.value === "current") {
@@ -485,6 +638,10 @@ chrome.devtools.network.onNavigated.addListener((url) => {
   if (reconLoaded && reconScope.value === "current") renderReconWorkspace();
   if (protocolLoaded && protocolScope.value === "current") void refreshProtocolWorkspace(true);
   if (apiMapLoaded && apiMapScope.value === "current") renderApiMap();
+  if (purpleAgentScope.value === "current") {
+    resetPurpleAgentInspection();
+    if (activeSection === "purple-team" && activePurpleTeamTool === "agent") void refreshPurpleAgentInspector();
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -921,6 +1078,7 @@ async function initializePanel(): Promise<void> {
   starredLogEventIds = await loadStarredLogEventIds();
   const inspectedPageUrl = await getInspectedPageUrl();
   currentPageHostname = getHostname(inspectedPageUrl);
+  currentPageOrigin = getOrigin(inspectedPageUrl);
   activeFilters = readFilters();
   await refreshCaptureStatus(inspectedPageUrl);
   try {
@@ -935,10 +1093,12 @@ async function initializePanel(): Promise<void> {
 }
 
 function setActiveSection(section: ToolSection): void {
+  if (section !== "purple-team") cancelPurpleAgentInspection();
   activeSection = section;
   const showSearch = section === "log-search";
   const showTraffic = section === "traffic";
   const showRedTeam = section === "red-team";
+  const showPurpleTeam = section === "purple-team";
   if (!showSearch && logSearchRenderFrame !== null) {
     window.cancelAnimationFrame(logSearchRenderFrame);
     logSearchRenderFrame = null;
@@ -946,14 +1106,18 @@ function setActiveSection(section: ToolSection): void {
   logSearchSection.hidden = !showSearch;
   trafficSection.hidden = !showTraffic;
   redTeamSection.hidden = !showRedTeam;
+  purpleTeamSection.hidden = !showPurpleTeam;
   showLogSearchSection.setAttribute("aria-pressed", String(showSearch));
   showTrafficSection.setAttribute("aria-pressed", String(showTraffic));
   showRedTeamSection.setAttribute("aria-pressed", String(showRedTeam));
+  showPurpleTeamSection.setAttribute("aria-pressed", String(showPurpleTeam));
   document.title = showSearch
     ? "Dev Toolz Log Search"
     : showTraffic
       ? "Dev Toolz API Traffic"
-      : `Dev Toolz Red Team ${activeRedTeamTool}`;
+      : showRedTeam
+        ? `Dev Toolz Red Team ${activeRedTeamTool}`
+        : `Dev Toolz Purple Team ${activePurpleTeamTool}`;
 }
 
 async function setActiveRedTeamTool(tool: RedTeamTool): Promise<void> {
@@ -968,6 +1132,848 @@ async function setActiveRedTeamTool(tool: RedTeamTool): Promise<void> {
   if (tool === "protocols" && !protocolLoaded) await refreshProtocolWorkspace(true);
   if (tool === "api-map" && !apiMapLoaded) await refreshApiMap();
   if (tool === "race-lab" && !raceLoaded) await loadRaceFlows();
+}
+
+async function setActivePurpleTeamTool(tool: PurpleTeamTool): Promise<void> {
+  if (tool !== "agent") cancelPurpleAgentInspection();
+  activePurpleTeamTool = tool;
+  for (const [name, controls] of Object.entries(purpleTeamTools)) {
+    const active = name === tool;
+    controls.button.setAttribute("aria-pressed", String(active));
+    controls.panel.hidden = !active;
+  }
+  document.title = `Dev Toolz Purple Team ${tool}`;
+  if (!purpleLoaded) await loadPurpleFlows();
+  if (tool === "attack-flow") await renderPurpleAttackFlow();
+  if (tool === "agent") {
+    if (!purpleAgentLoaded) await refreshPurpleAgentInspector();
+    else if (purpleAgentDirty) showPurpleAgentDirtyState();
+  }
+}
+
+const browserIdentity: IdentityProfile = {
+  id: "browser",
+  displayName: "Current browser session",
+  mode: "browser",
+  authorizationScheme: null,
+};
+const anonymousIdentity: IdentityProfile = {
+  id: "anonymous",
+  displayName: "Anonymous",
+  mode: "anonymous",
+  authorizationScheme: null,
+};
+let purpleMatrixCancelled = false;
+
+async function loadPurpleFlows(selectedId?: string): Promise<void> {
+  purpleFlows = await getPurpleFlows();
+  purpleLoaded = true;
+  for (const select of [purpleProofFlow, purpleAuthFlow, purpleAttackFlow, purpleJourneyFlow]) {
+    const preferred = selectedId ?? select.value;
+    select.replaceChildren(createOption("", purpleFlows.length ? "Select a journey" : "No saved journeys"));
+    for (const flow of purpleFlows) select.appendChild(createOption(flow.id, flow.name));
+    select.value = purpleFlows.some(({ id }) => id === preferred) ? preferred : "";
+  }
+  renderPurpleProof();
+  renderPurpleAuthorization();
+  renderPurpleJourney();
+}
+
+
+function getPurpleFlow(select: HTMLSelectElement): PurpleFlow | null {
+  return purpleFlows.find(({ id }) => id === select.value) ?? null;
+}
+
+function createPurpleCapturedStep(exchange: ApiExchange, origin: string): PurpleStep {
+  const snapshot = createRaceSnapshot(exchange, origin);
+  return {
+    id: crypto.randomUUID(),
+    name: `${snapshot.method} ${new URL(snapshot.url).pathname}`.slice(0, 80),
+    capturedRequest: snapshot,
+    openApiOperation: null,
+    expectation: {
+      prevention: "observe-only",
+      detectionQuery: null,
+      expectedStatus: null,
+      expectedStatusClass: null,
+    },
+  };
+}
+
+function createAddToPurpleJourneyButton(exchange: ApiExchange): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Add to Purple Journey";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      if (!purpleLoaded) await loadPurpleFlows();
+      const origin = await getInspectedPageOrigin();
+      let flow = getPurpleFlow(purpleJourneyFlow);
+      if (!flow) flow = createPurpleFlow("Captured journey", origin);
+      if (flow.origin !== origin) throw new Error("Select a journey for the inspected origin.");
+      const saved = await savePurpleFlow({
+        ...flow,
+        steps: [...flow.steps, createPurpleCapturedStep(exchange, origin)],
+        updatedAt: new Date().toISOString(),
+      });
+      await loadPurpleFlows(saved.id);
+      button.textContent = "Added";
+    } catch (error) {
+      button.textContent = error instanceof Error ? error.message : "Could not add";
+    } finally {
+      window.setTimeout(() => { button.disabled = false; button.textContent = "Add to Purple Journey"; }, 1800);
+    }
+  });
+  return button;
+}
+
+function renderPurpleProof(): void {
+  const flow = getPurpleFlow(purpleProofFlow);
+  purpleProofReview.disabled = !flow || flow.steps.length === 0 || activePurpleRunId !== null;
+  purpleProofExport.disabled = lastPurpleRun === null || lastPurpleRun.flowId !== flow?.id;
+  if (!flow) {
+    purpleProofState.textContent = "Select a journey to review its exact origin and steps.";
+    return;
+  }
+  purpleProofState.textContent = `${flow.origin} · ${flow.steps.length} reviewed step${flow.steps.length === 1 ? "" : "s"}.`;
+}
+
+function reviewPurpleProof(): void {
+  const flow = getPurpleFlow(purpleProofFlow);
+  if (!flow?.steps.length) return;
+  const identity = purpleProofIdentity.value === "anonymous" ? anonymousIdentity : browserIdentity;
+  showPurpleReview(
+    `Run ${flow.steps.length} step${flow.steps.length === 1 ? "" : "s"} as ${identity.displayName} against ${flow.origin}.`,
+    flow,
+    () => void runPurpleProof(flow, identity),
+  );
+}
+
+function showPurpleReview(summary: string, flow: PurpleFlow, action: () => void, cancel?: () => void): void {
+  pendingPurpleReview = action;
+  pendingPurpleReviewCancel = cancel ?? null;
+  purpleReviewSummary.textContent = summary;
+  purpleReviewSteps.replaceChildren(...flow.steps.map((step) => {
+    const item = document.createElement("li");
+    item.textContent = `${step.name}: ${step.capturedRequest.method} ${step.capturedRequest.url}`;
+    return item;
+  }));
+  purpleReviewAuthorized.checked = false;
+  purpleReviewStart.disabled = true;
+  purpleReviewDialog.returnValue = "";
+  purpleReviewDialog.showModal();
+}
+
+async function runPurpleProof(flow: PurpleFlow, identity: IdentityProfile): Promise<void> {
+  setPurpleRunning(true);
+  purpleProofResults.replaceChildren();
+  purpleProofRegion.hidden = true;
+  purpleProofState.textContent = "Running reviewed steps and checking detection evidence…";
+  try {
+    const run = await dispatchPurpleRun(flow, identity);
+    lastPurpleRun = await savePurpleRunSummary(run);
+    renderPurpleRun(run);
+  } catch (error) {
+    purpleProofState.textContent = error instanceof Error ? error.message : "Purple proof run failed.";
+  } finally {
+    activePurpleRunId = null;
+    setPurpleRunning(false);
+  }
+}
+
+async function dispatchPurpleRun(flow: PurpleFlow, identity: IdentityProfile, authorizationHeader?: string): Promise<PurpleRun> {
+  const expectedPageUrl = await getInspectedPageUrl();
+  const runId = crypto.randomUUID();
+  activePurpleRunId = runId;
+  const response = await sendToBackground("RUN_PURPLE_FLOW", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+    runId,
+    expectedPageUrl,
+    flow,
+    identity,
+    ...(authorizationHeader === undefined ? {} : { authorizationHeader }),
+  });
+  if (!response.success || !response.data) throw new Error(response.error ?? "Purple run returned no result.");
+  return response.data;
+}
+
+function setPurpleRunning(running: boolean): void {
+  purpleProofReview.disabled = running || !getPurpleFlow(purpleProofFlow)?.steps.length;
+  purpleProofCancel.hidden = !running;
+  purpleAuthRun.disabled = running || !getPurpleFlow(purpleAuthFlow)?.steps.length || purpleIdentities.length < 2;
+  purpleAuthCancel.hidden = !running;
+}
+
+async function cancelPurpleRun(): Promise<void> {
+  const runId = activePurpleRunId;
+  if (!runId) return;
+  purpleMatrixCancelled = true;
+  const response = await sendToBackground("CANCEL_PURPLE_FLOW", {
+    tabId: chrome.devtools.inspectedWindow.tabId,
+    runId,
+  });
+  if (!response.success || !response.data?.cancelled) {
+    purpleProofState.textContent = response.error ?? "The run already finished.";
+    purpleAuthState.textContent = response.error ?? "The comparison already finished.";
+  }
+}
+
+function renderPurpleRun(run: PurpleRun): void {
+  purpleProofState.textContent = `${run.status} · Prevention ${run.preventionScore.met}/${run.preventionScore.total} · Detection ${run.detectionScore.met}/${run.detectionScore.total}`;
+  purpleProofResults.replaceChildren(...run.steps.map((outcome) => {
+    const row = document.createElement("tr");
+    const flow = purpleFlows.find(({ id }) => id === run.flowId);
+    const name = flow?.steps.find(({ id }) => id === outcome.stepId)?.name ?? outcome.stepId;
+    appendTableCells(row, [name, outcome.preventionOutcome, outcome.detectionOutcome]);
+    const evidence = document.createElement("td");
+    if (outcome.evidenceSequenceIds.length) {
+      evidence.append(...outcome.evidenceSequenceIds.map(createEvidenceButton));
+    } else {
+      evidence.textContent = outcome.error ?? "No linked evidence";
+    }
+    row.appendChild(evidence);
+    return row;
+  }));
+  purpleProofRegion.hidden = run.steps.length === 0;
+  purpleProofExport.disabled = false;
+}
+
+function exportPurpleReport(): void {
+  const run = lastPurpleRun;
+  if (!run) return;
+  const report = {
+    format: "dev-toolz-purple-proof-1",
+    flow: { id: run.flowId, name: run.flowName, origin: run.origin },
+    identity: run.identityDisplayName,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    status: run.status,
+    preventionScore: run.preventionScore,
+    detectionScore: run.detectionScore,
+    steps: run.steps,
+  };
+  downloadDataAsFile(`${run.flowName}-purple-proof.json`, JSON.stringify(report, null, 2), "application/json");
+}
+
+function appendTableCells(row: HTMLTableRowElement, values: readonly string[]): void {
+  for (const value of values) {
+    const cell = document.createElement("td");
+    cell.textContent = value;
+    row.appendChild(cell);
+  }
+}
+
+function addPurpleIdentity(): void {
+  const name = purpleAuthName.value.trim();
+  const value = purpleAuthSecret.value.trim();
+  const scheme = value.match(/^([!#$%&'*+.^_`|~0-9A-Za-z-]+)\s+\S/)?.[1];
+  if (!name || !scheme) {
+    purpleAuthState.textContent = "Enter a name and a complete Authorization value, such as Bearer plus a token.";
+    return;
+  }
+  if (purpleIdentities.length >= 8) {
+    purpleAuthState.textContent = "A comparison supports up to eight named identities.";
+    return;
+  }
+  const profile: IdentityProfile = {
+    id: crypto.randomUUID(),
+    displayName: name.slice(0, 80),
+    mode: "authorization-header",
+    authorizationScheme: scheme,
+  };
+  purpleIdentities.push({ profile, value });
+  purpleAuthName.value = "";
+  purpleAuthSecret.value = "";
+  renderPurpleAuthorization();
+}
+
+function renderPurpleAuthorization(): void {
+  const flow = getPurpleFlow(purpleAuthFlow);
+  purpleAuthIdentities.replaceChildren(...purpleIdentities.map(({ profile }) => {
+    const item = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = `${profile.displayName} · ${profile.authorizationScheme}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      purpleIdentities = purpleIdentities.filter(({ profile: candidate }) => candidate.id !== profile.id);
+      renderPurpleAuthorization();
+    });
+    item.append(label, remove);
+    return item;
+  }));
+  purpleAuthRun.disabled = !flow?.steps.length || purpleIdentities.length < 2 || activePurpleRunId !== null;
+  purpleAuthState.textContent = !flow
+    ? "Select a journey and add two named identities."
+    : `${flow.steps.length} step${flow.steps.length === 1 ? "" : "s"} · ${purpleIdentities.length} named identit${purpleIdentities.length === 1 ? "y" : "ies"}.`;
+}
+
+function reviewPurpleAuthorization(): void {
+  const flow = getPurpleFlow(purpleAuthFlow);
+  if (!flow?.steps.length) return;
+  try {
+    createAuthorizationMatrixProfiles(purpleIdentities.map(({ profile }) => profile));
+  } catch (error) {
+    purpleAuthState.textContent = error instanceof Error ? error.message : "Add two valid named identities.";
+    return;
+  }
+  showPurpleReview(
+    `Compare browser, anonymous, and ${purpleIdentities.length} named identities across ${flow.steps.length} step${flow.steps.length === 1 ? "" : "s"} at ${flow.origin}.`,
+    flow,
+    () => void runPurpleAuthorization(flow),
+    () => {
+      clearPurpleIdentitySecrets();
+      purpleAuthState.textContent = "Comparison cancelled; authorization values cleared.";
+    },
+  );
+}
+
+function clearPurpleIdentitySecrets(): void {
+  purpleIdentities = [];
+  purpleAuthName.value = "";
+  purpleAuthSecret.value = "";
+  purpleAuthIdentities.replaceChildren();
+  purpleAuthRun.disabled = true;
+}
+
+async function runPurpleAuthorization(flow: PurpleFlow): Promise<void> {
+  const identities = [{ profile: browserIdentity, value: undefined }, { profile: anonymousIdentity, value: undefined }, ...purpleIdentities];
+  purpleMatrixCancelled = false;
+  setPurpleRunning(true);
+  purpleAuthRegion.hidden = true;
+  purpleAuthResults.replaceChildren();
+  purpleAuthState.textContent = "Comparing reviewed responses…";
+  try {
+    const runs: PurpleRun[] = [];
+    for (const identity of identities) {
+      if (purpleMatrixCancelled) break;
+      runs.push(await dispatchPurpleRun(flow, identity.profile, identity.value));
+    }
+    const browserRun = runs[0];
+    if (!browserRun) throw new Error("Browser baseline did not complete.");
+    const rows: HTMLTableRowElement[] = [];
+    for (const [runIndex, run] of runs.entries()) {
+      for (const [stepIndex, outcome] of run.steps.entries()) {
+        const row = document.createElement("tr");
+        const stepName = flow.steps[stepIndex]?.name ?? outcome.stepId;
+        if (runIndex === 0) {
+          appendTableCells(row, [`${run.identityDisplayName} · ${stepName}`, "baseline", `HTTP ${outcome.status ?? "none"}; ${outcome.responseLength ?? 0} bounded bytes`]);
+        } else {
+          const baseline = browserRun.steps[stepIndex];
+          const comparison = baseline
+            ? classifyAuthorizationResponse(toAuthorizationEvidence(baseline), toAuthorizationEvidence(outcome))
+            : { classification: "inconclusive" as const, explanations: ["Browser baseline step is missing."] };
+          appendTableCells(row, [`${run.identityDisplayName} · ${stepName}`, comparison.classification, comparison.explanations.join(" ")]);
+        }
+        rows.push(row);
+      }
+    }
+    purpleAuthResults.replaceChildren(...rows);
+    purpleAuthRegion.hidden = rows.length === 0;
+    purpleAuthState.textContent = purpleMatrixCancelled ? "Comparison cancelled; partial evidence is inconclusive." : `Compared ${runs.length} identities without persisting their values.`;
+  } catch (error) {
+    purpleAuthState.textContent = error instanceof Error ? error.message : "Authorization comparison failed.";
+  } finally {
+    activePurpleRunId = null;
+    clearPurpleIdentitySecrets();
+    setPurpleRunning(false);
+  }
+}
+
+function toAuthorizationEvidence(outcome: PurpleRun["steps"][number]): AuthorizationResponseEvidence {
+  return {
+    status: outcome.status,
+    responseLength: outcome.responseLength,
+    responseSha256: outcome.responseSha256,
+    responseTruncated: outcome.responseTruncated,
+    error: outcome.error,
+  };
+}
+
+async function renderPurpleAttackFlow(): Promise<void> {
+  const flow = getPurpleFlow(purpleAttackFlow);
+  currentAttackGraph = null;
+  selectedAttackStepId = null;
+  purpleAttackWorkspace.hidden = true;
+  purpleAttackAnnotate.disabled = true;
+  purpleAttackExport.disabled = true;
+  if (!flow?.steps.length) {
+    purpleAttackState.textContent = "Select a non-empty journey to build its causal graph.";
+    return;
+  }
+  try {
+    const [run] = await getPurpleRunSummaries(flow.id);
+    currentAttackGraph = createAttackFlowGraph(flow, run ?? null);
+    renderAttackSvg(currentAttackGraph);
+    renderAttackDetails(currentAttackGraph);
+    purpleAttackWorkspace.hidden = false;
+    purpleAttackExport.disabled = false;
+    purpleAttackState.textContent = `${currentAttackGraph.nodes.length} connected nodes · select an action to edit ATT&CK metadata.`;
+  } catch (error) {
+    purpleAttackState.textContent = error instanceof Error ? error.message : "Could not build Attack Flow.";
+  }
+}
+
+function renderAttackSvg(graph: AttackFlowGraph): void {
+  const title = purpleAttackGraph.querySelector("title");
+  const description = purpleAttackGraph.querySelector("desc");
+  purpleAttackGraph.replaceChildren();
+  if (title) purpleAttackGraph.appendChild(title);
+  if (description) purpleAttackGraph.appendChild(description);
+  const positions = new Map<string, { x: number; y: number }>();
+  graph.nodes.forEach((node, index) => positions.set(node.id, { x: 200 + (index % 3) * 280, y: 50 + Math.floor(index / 3) * 90 }));
+  const height = Math.max(320, 120 + Math.ceil(graph.nodes.length / 3) * 90);
+  purpleAttackGraph.setAttribute("viewBox", `0 0 960 ${height}`);
+  for (const node of graph.nodes) {
+    if (!("effectRefs" in node)) continue;
+    const from = positions.get(node.id);
+    if (!from) continue;
+    for (const ref of node.effectRefs) {
+      const to = positions.get(ref);
+      if (!to) continue;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(from.x + 100));
+      line.setAttribute("y1", String(from.y + 22));
+      line.setAttribute("x2", String(to.x));
+      line.setAttribute("y2", String(to.y + 22));
+      line.setAttribute("stroke", "currentColor");
+      purpleAttackGraph.appendChild(line);
+    }
+  }
+  for (const node of graph.nodes) {
+    const position = positions.get(node.id)!;
+    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", String(position.x));
+    rect.setAttribute("y", String(position.y));
+    rect.setAttribute("width", "200");
+    rect.setAttribute("height", "44");
+    rect.setAttribute("rx", "5");
+    rect.setAttribute("fill", "Canvas");
+    rect.setAttribute("stroke", "currentColor");
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", String(position.x + 8));
+    text.setAttribute("y", String(position.y + 26));
+    text.setAttribute("fill", "currentColor");
+    text.textContent = node.label.length > 30 ? `${node.label.slice(0, 29)}…` : node.label;
+    const nodeTitle = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    nodeTitle.textContent = `${node.type}: ${node.label}`;
+    group.append(nodeTitle, rect, text);
+    purpleAttackGraph.appendChild(group);
+  }
+}
+
+function renderAttackDetails(graph: AttackFlowGraph): void {
+  purpleAttackDetails.replaceChildren(...graph.nodes.map((node) => {
+    const item = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = `${node.type}: ${node.label}`;
+    item.appendChild(label);
+    if ("evidenceRefs" in node) {
+      const sequences = node.evidenceRefs.flatMap((reference) => {
+        const match = /^capture-sequence:(\d+)$/.exec(reference);
+        return match ? [Number(match[1])] : [];
+      });
+      item.append(...sequences.map(createEvidenceButton));
+    }
+    if (node.type === "attack-action") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Edit ATT&CK mapping";
+      button.addEventListener("click", () => {
+        selectedAttackStepId = node.stepId;
+        const annotation = getPurpleFlow(purpleAttackFlow)?.attackAnnotations.find(({ stepId }) => stepId === node.stepId);
+        purpleAttackTactic.value = annotation?.tacticId ?? "";
+        purpleAttackTacticName.value = annotation?.tacticName ?? "";
+        purpleAttackTechnique.value = annotation?.techniqueId ?? "";
+        purpleAttackTechniqueName.value = annotation?.techniqueName ?? "";
+        purpleAttackAnnotate.disabled = false;
+      });
+      item.appendChild(button);
+    }
+    return item;
+  }));
+}
+
+async function annotatePurpleAttackStep(): Promise<void> {
+  const flow = getPurpleFlow(purpleAttackFlow);
+  if (!flow || !selectedAttackStepId) return;
+  const values = [purpleAttackTactic.value, purpleAttackTacticName.value, purpleAttackTechnique.value, purpleAttackTechniqueName.value].map((value) => value.trim());
+  const annotations = flow.attackAnnotations.filter(({ stepId }) => stepId !== selectedAttackStepId);
+  if (values.some(Boolean)) {
+    if (values.some((value) => !value)) {
+      purpleAttackState.textContent = "Enter tactic and technique IDs and names, or clear all four fields to remove the mapping.";
+      return;
+    }
+    annotations.push({
+      id: crypto.randomUUID(),
+      stepId: selectedAttackStepId,
+      tacticId: values[0]!,
+      tacticName: values[1]!,
+      techniqueId: values[2]!,
+      techniqueName: values[3]!,
+    });
+  }
+  const saved = await savePurpleFlow({ ...flow, attackAnnotations: annotations, updatedAt: new Date().toISOString() });
+  await loadPurpleFlows(saved.id);
+  purpleAttackFlow.value = saved.id;
+  await renderPurpleAttackFlow();
+}
+
+function exportPurpleAttackFlow(): void {
+  if (!currentAttackGraph) return;
+  const bundle = exportAttackFlowBundle(currentAttackGraph);
+  downloadDataAsFile("purple-attack-flow.json", JSON.stringify(bundle, null, 2), "application/stix+json");
+}
+
+function cancelPurpleAgentInspection(): void {
+  purpleAgentAbort?.abort();
+  purpleAgentAbort = null;
+  purpleAgentRefresh.disabled = false;
+}
+
+function resetPurpleAgentInspection(): void {
+  cancelPurpleAgentInspection();
+  purpleAgentLoaded = false;
+  purpleAgentDirty = false;
+  purpleAgentLastSummary = "";
+}
+
+function showPurpleAgentDirtyState(): void {
+  purpleAgentState.textContent = `${purpleAgentLastSummary} New traffic is available; refresh to inspect it.`;
+}
+
+function markPurpleAgentDataChanged(): void {
+  purpleAgentDataRevision += 1;
+  purpleAgentDirty = true;
+  if (purpleAgentLoaded && activeSection === "purple-team" && activePurpleTeamTool === "agent") {
+    showPurpleAgentDirtyState();
+  }
+}
+
+async function refreshPurpleAgentInspector(fullHistory = false): Promise<void> {
+  const hadCachedResult = purpleAgentLoaded;
+  purpleAgentAbort?.abort();
+  const controller = new AbortController();
+  const dataRevision = purpleAgentDataRevision;
+  purpleAgentAbort = controller;
+  purpleAgentRefresh.disabled = true;
+  purpleAgentState.textContent = fullHistory
+    ? "Inspecting full captured history off the UI thread…"
+    : "Inspecting recent captured traffic off the UI thread…";
+  if (!hadCachedResult) {
+    purpleAgentCapabilities.replaceChildren();
+    purpleAgentTimeline.replaceChildren();
+  }
+  try {
+    const result = await inspectAgentTrafficOffThread(
+      {
+        pageHostname: purpleAgentScope.value === "current" ? currentPageHostname : null,
+        ...(fullHistory ? {} : { recordLimit: 500 }),
+      },
+      controller.signal,
+      (scanned) => {
+        if (purpleAgentAbort === controller) {
+          purpleAgentState.textContent = `${fullHistory ? "Inspecting full captured history" : "Inspecting recent captured traffic"} off the UI thread… ${scanned.toLocaleString()} scanned`;
+        }
+      }
+    );
+    if (purpleAgentAbort !== controller) return;
+    renderPurpleAgentInspections(result.inspections);
+    const limited = result.apiResultLimitReached || result.protocolResultLimitReached
+      ? " · newest matching results shown"
+      : result.apiRecordLimitReached || result.protocolRecordLimitReached
+        ? fullHistory
+          ? " · 50,000-record safety limit reached"
+          : " · recent scan; refresh for full history"
+        : "";
+    purpleAgentLastSummary = `${purpleAgentState.textContent} · ${(result.scannedApi + result.scannedProtocol).toLocaleString()} records scanned${limited}`;
+    purpleAgentLoaded = true;
+    purpleAgentDirty = purpleAgentDataRevision !== dataRevision;
+    if (purpleAgentDirty) showPurpleAgentDirtyState();
+    else purpleAgentState.textContent = purpleAgentLastSummary;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    purpleAgentState.textContent = error instanceof Error ? error.message : "Could not inspect agent traffic.";
+  } finally {
+    if (purpleAgentAbort === controller) {
+      purpleAgentAbort = null;
+      purpleAgentRefresh.disabled = false;
+    }
+  }
+}
+
+function renderPurpleAgentInspections(inspections: readonly AgentProtocolInspection[]): void {
+  const capabilities = inspections.flatMap((inspection) => inspection.capabilities);
+  const signals = inspections.flatMap((inspection) => inspection.signals);
+  const timeline = inspections.flatMap((inspection) => inspection.timeline)
+    .sort((a, b) => a.evidence.timestamp.localeCompare(b.evidence.timestamp));
+  purpleAgentCapabilities.replaceChildren(
+    ...capabilities.map((item) => createAgentEvidenceItem(`${item.protocol.toUpperCase()} capability ${item.name} · field ${item.triggeringField}`, item.evidence.sequence)),
+    ...signals.map((item) => createAgentEvidenceItem(`Heuristic ${item.kind}: ${item.label} · field ${item.triggeringField}`, item.evidence.sequence)),
+  );
+  purpleAgentTimeline.replaceChildren(...timeline.map((item) => createAgentEvidenceItem(
+    `${item.evidence.timestamp} · ${item.protocol.toUpperCase()} ${item.kind} · ${item.label}${item.detail ? ` · ${item.detail}` : ""}`,
+    item.evidence.sequence,
+  )));
+  purpleAgentState.textContent = timeline.length
+    ? `${timeline.length} passive protocol events · ${signals.length} heuristic signal${signals.length === 1 ? "" : "s"}.`
+    : "No recognized MCP or A2A traffic was found. Unknown JSON-RPC remains ordinary traffic.";
+}
+
+function createAgentEvidenceItem(text: string, sequence?: number): HTMLLIElement {
+  const item = document.createElement("li");
+  const label = document.createElement("span");
+  label.textContent = text;
+  item.appendChild(label);
+  if (sequence !== undefined) item.appendChild(createEvidenceButton(sequence));
+  return item;
+}
+
+function createEvidenceButton(sequence: number): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = `Open evidence ${sequence}`;
+  button.addEventListener("click", () => void openEvidenceSequence(sequence));
+  return button;
+}
+
+async function openEvidenceSequence(sequence: number): Promise<void> {
+  const exchange = await getApiTrafficBySequence(sequence);
+  if (exchange) {
+    setActiveSection("traffic");
+    requestList.replaceChildren(createExchange(exchange));
+    requestList.scrollIntoView({ block: "start" });
+    return;
+  }
+  const events = await getProtocolEvents(null, 5000, {
+    pageHostname: null,
+    transport: "",
+    direction: "",
+    port: "",
+    operationName: "",
+    text: "",
+  });
+  const event = events.find((candidate) => candidate.sequence === sequence);
+  if (event) {
+    setActiveSection("red-team");
+    await setActiveRedTeamTool("protocols");
+    displayedProtocolEvents = [event];
+    renderProtocolWorkspace();
+    protocolEvents.scrollIntoView({ block: "start" });
+    return;
+  }
+  purpleProofState.textContent = `Evidence ${sequence} is no longer retained.`;
+}
+
+function renderPurpleJourney(): void {
+  const flow = getPurpleFlow(purpleJourneyFlow);
+  purpleJourneyName.value = flow?.name ?? "";
+  purpleJourneySave.disabled = !flow || !purpleJourneyName.value.trim() || purpleJourneyName.value.trim() === flow.name;
+  purpleJourneyDelete.disabled = !flow;
+  purpleJourneyExport.disabled = !flow?.steps.length || apiMapBaseline === null;
+  purpleJourneySteps.replaceChildren();
+  if (!flow) {
+    purpleJourneyState.textContent = "Create a journey or add a captured request from API Traffic.";
+    return;
+  }
+  purpleJourneyState.textContent = `${flow.origin} · ${flow.steps.length} ordered step${flow.steps.length === 1 ? "" : "s"}.`;
+  purpleJourneySteps.replaceChildren(...flow.steps.map((step, index) => createPurpleJourneyStep(flow, step, index)));
+}
+
+function createPurpleJourneyStep(flow: PurpleFlow, step: PurpleStep, index: number): HTMLLIElement {
+  const item = document.createElement("li");
+  const name = document.createElement("input");
+  name.type = "text";
+  name.maxLength = 80;
+  name.value = step.name;
+  name.setAttribute("aria-label", `Step ${index + 1} name`);
+  const prevention = document.createElement("select");
+  prevention.setAttribute("aria-label", `Step ${index + 1} prevention expectation`);
+  for (const value of ["allowed", "blocked", "observe-only"] as const) prevention.appendChild(createOption(value, value));
+  prevention.value = step.expectation.prevention;
+  const detection = document.createElement("input");
+  detection.type = "text";
+  detection.maxLength = LOG_SEARCH_LIMITS.queryCharacters;
+  detection.value = step.expectation.detectionQuery ?? "";
+  detection.placeholder = "Detection query (optional)";
+  detection.setAttribute("aria-label", `Step ${index + 1} detection query`);
+  const status = document.createElement("input");
+  status.type = "text";
+  status.inputMode = "numeric";
+  status.maxLength = 3;
+  status.value = step.expectation.expectedStatus?.toString() ?? step.expectation.expectedStatusClass ?? "";
+  status.placeholder = "200 or 2xx";
+  status.setAttribute("aria-label", `Step ${index + 1} expected status`);
+  const operation = document.createElement("input");
+  operation.type = "text";
+  operation.maxLength = 128;
+  operation.value = step.openApiOperation?.operationId ?? step.openApiOperation?.operationPath ?? "";
+  operation.placeholder = "operationId or METHOD /path (optional)";
+  operation.setAttribute("aria-label", `Step ${index + 1} OpenAPI operation ID`);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = "Save step";
+  save.addEventListener("click", () => void updatePurpleJourneyStep(flow, step, { name, prevention, detection, status, operation }));
+  const up = document.createElement("button");
+  up.type = "button";
+  up.textContent = "Move up";
+  up.disabled = index === 0;
+  up.addEventListener("click", () => void movePurpleJourneyStep(flow, index, index - 1));
+  const down = document.createElement("button");
+  down.type = "button";
+  down.textContent = "Move down";
+  down.disabled = index === flow.steps.length - 1;
+  down.addEventListener("click", () => void movePurpleJourneyStep(flow, index, index + 1));
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => void removePurpleJourneyStep(flow, step.id));
+  const request = document.createElement("code");
+  request.textContent = `${step.capturedRequest.method} ${step.capturedRequest.url}`;
+  item.append(name, prevention, detection, status, operation, save, up, down, remove, request);
+  return item;
+}
+
+async function updatePurpleJourneyStep(
+  flow: PurpleFlow,
+  step: PurpleStep,
+  controls: { name: HTMLInputElement; prevention: HTMLSelectElement; detection: HTMLInputElement; status: HTMLInputElement; operation: HTMLInputElement },
+): Promise<void> {
+  try {
+    const rawStatus = controls.status.value.trim().toLowerCase();
+    const expectedStatusClass = /^[1-5]xx$/.test(rawStatus) ? rawStatus as PurpleStep["expectation"]["expectedStatusClass"] : null;
+    const expectedStatus = rawStatus && !expectedStatusClass ? Number(rawStatus) : null;
+    if (expectedStatus !== null && (!Number.isInteger(expectedStatus) || expectedStatus < 100 || expectedStatus > 599)) throw new Error("Expected status must be 100–599 or a 1xx–5xx class.");
+    const openApiOperation = controls.operation.value.trim() ? resolveLocalOperation(controls.operation.value.trim()) : null;
+    const next: PurpleStep = {
+      ...step,
+      name: controls.name.value.trim(),
+      openApiOperation,
+      expectation: {
+        prevention: controls.prevention.value as PurpleStep["expectation"]["prevention"],
+        detectionQuery: controls.detection.value.trim() || null,
+        expectedStatus,
+        expectedStatusClass,
+      },
+    };
+    const saved = await savePurpleFlow({
+      ...flow,
+      steps: flow.steps.map((candidate) => candidate.id === step.id ? next : candidate),
+      updatedAt: new Date().toISOString(),
+    });
+    await loadPurpleFlows(saved.id);
+    purpleJourneyFlow.value = saved.id;
+    renderPurpleJourney();
+  } catch (error) {
+    purpleJourneyState.textContent = error instanceof Error ? error.message : "Could not update the step.";
+  }
+}
+
+function resolveLocalOperation(value: string): PurpleStep["openApiOperation"] {
+  const baseline = getLocalOpenApiBaseline();
+  for (const [path, pathItem] of Object.entries(baseline.document.paths)) {
+    for (const [method, operation] of Object.entries(pathItem)) {
+      if (!operation || typeof operation !== "object" || Array.isArray(operation)) continue;
+      const operationId = Object.getOwnPropertyDescriptor(operation, "operationId")?.value;
+      if (operationId === value) return { sourceId: baseline.sourceId, operationId: value, operationPath: null };
+      if (`${method.toUpperCase()} ${path}` === value.toUpperCase()) return { sourceId: baseline.sourceId, operationId: null, operationPath: `#/paths/${escapeJsonPointer(path)}/${method}` };
+    }
+  }
+  throw new Error(`OpenAPI operation '${value}' was not found in the loaded local baseline.`);
+}
+
+function escapeJsonPointer(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+async function movePurpleJourneyStep(flow: PurpleFlow, from: number, to: number): Promise<void> {
+  if (to < 0 || to >= flow.steps.length) return;
+  const steps = [...flow.steps];
+  const [step] = steps.splice(from, 1);
+  if (!step) return;
+  steps.splice(to, 0, step);
+  const saved = await savePurpleFlow({ ...flow, steps, updatedAt: new Date().toISOString() });
+  await loadPurpleFlows(saved.id);
+  purpleJourneyFlow.value = saved.id;
+  renderPurpleJourney();
+}
+
+async function removePurpleJourneyStep(flow: PurpleFlow, stepId: string): Promise<void> {
+  const saved = await savePurpleFlow({
+    ...flow,
+    steps: flow.steps.filter(({ id }) => id !== stepId),
+    expectedControls: flow.expectedControls.map((control) => ({ ...control, stepIds: control.stepIds.filter((id) => id !== stepId) })).filter(({ stepIds }) => stepIds.length),
+    attackAnnotations: flow.attackAnnotations.filter(({ stepId: id }) => id !== stepId),
+    updatedAt: new Date().toISOString(),
+  });
+  await loadPurpleFlows(saved.id);
+  purpleJourneyFlow.value = saved.id;
+  renderPurpleJourney();
+}
+
+async function createPurpleJourney(): Promise<void> {
+  try {
+    const origin = await getInspectedPageOrigin();
+    const saved = await savePurpleFlow(createPurpleFlow(purpleJourneyName.value || "Untitled journey", origin));
+    await loadPurpleFlows(saved.id);
+  } catch (error) {
+    purpleJourneyState.textContent = error instanceof Error ? error.message : "Could not create the journey.";
+  }
+}
+
+async function renamePurpleJourney(): Promise<void> {
+  const flow = getPurpleFlow(purpleJourneyFlow);
+  if (!flow) return;
+  const saved = await savePurpleFlow({ ...flow, name: purpleJourneyName.value, updatedAt: new Date().toISOString() });
+  await loadPurpleFlows(saved.id);
+}
+
+async function removePurpleJourney(): Promise<void> {
+  const flow = getPurpleFlow(purpleJourneyFlow);
+  if (!flow) return;
+  await deletePurpleFlow(flow.id);
+  lastPurpleRun = null;
+  await loadPurpleFlows();
+}
+
+async function importPurpleJourney(): Promise<void> {
+  const file = purpleJourneyImport.files?.[0];
+  purpleJourneyImport.value = "";
+  if (!file) return;
+  try {
+    if (file.size > MAX_ARAZZO_IMPORT_BYTES) throw new Error("Arazzo file must be 1 MiB or smaller.");
+    const flows = parseArazzo(await file.text(), getLocalOpenApiBaseline());
+    let lastId = "";
+    for (const flow of flows) lastId = (await savePurpleFlow(flow)).id;
+    await loadPurpleFlows(lastId);
+    purpleJourneyState.textContent = `Imported ${flows.length} Arazzo workflow${flows.length === 1 ? "" : "s"}.`;
+  } catch (error) {
+    purpleJourneyState.textContent = error instanceof Error ? error.message : "Could not import Arazzo JSON.";
+  }
+}
+
+function exportPurpleJourney(): void {
+  const flow = getPurpleFlow(purpleJourneyFlow);
+  if (!flow) return;
+  try {
+    downloadDataAsFile(`${flow.name}.arazzo.json`, serializeArazzo([flow], getLocalOpenApiBaseline()), "application/json");
+  } catch (error) {
+    purpleJourneyState.textContent = error instanceof Error ? error.message : "Could not export Arazzo JSON.";
+  }
+}
+
+function getLocalOpenApiBaseline(): LocalOpenApiBaseline {
+  if (!apiMapBaseline) throw new Error("Load a local OpenAPI baseline in Red Team API Map first.");
+  return {
+    sourceId: "dev-toolz-local-openapi",
+    name: "openapi",
+    url: "openapi.json",
+    document: apiMapBaseline,
+    origin: currentPageOrigin || undefined,
+  };
 }
 
 function readProtocolFilters(): ProtocolFilters {
@@ -1644,21 +2650,38 @@ function readFilters(): ApiTrafficFilters {
 }
 
 function getInspectedPageUrl(): Promise<string> {
-  return new Promise((resolve) => {
-    chrome.devtools.inspectedWindow.eval("location.href", (result, exceptionInfo) => {
-      resolve(!exceptionInfo && typeof result === "string" ? result : "");
-    });
-  });
+  return evaluateInspectedString("location.href");
 }
 
 function getInspectedPageOrigin(): Promise<string> {
+  return evaluateInspectedString("location.origin");
+}
+
+function evaluateInspectedString(expression: string): Promise<string> {
   return new Promise((resolve) => {
-    chrome.devtools.inspectedWindow.eval("location.origin", (result, exceptionInfo) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      settled = true;
+      resolve("");
+    }, 5_000);
+    chrome.devtools.inspectedWindow.eval(expression, (result, exceptionInfo) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
       resolve(!exceptionInfo && typeof result === "string" ? result : "");
     });
   });
 }
 
+
+function getOrigin(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
 
 function getHostname(rawUrl: string): string {
   try {
@@ -1847,7 +2870,8 @@ function createReconEvidence(exchange: ApiExchange): HTMLDetailsElement {
     actions.className = "actions";
     actions.append(
       createCopyButton("Copy request URL", exchange.request.url),
-      createAddToFlowButton(exchange)
+      createAddToFlowButton(exchange),
+      createAddToPurpleJourneyButton(exchange)
     );
     details.append(
       metadata,
@@ -2224,7 +3248,12 @@ function createExchange(exchange: ApiExchange): HTMLElement {
     sessionManifest ? "Open signed URL" : "Open URL"
   );
   const hideEndpoint = createHideEndpointButton(exchange.request.url);
-  actions.append(createStarButton(createApiLogRecord(exchange).id), copyUrl, ...(openUrl ? [openUrl] : []));
+  actions.append(
+    createStarButton(createApiLogRecord(exchange).id),
+    copyUrl,
+    ...(openUrl ? [openUrl] : []),
+    createAddToPurpleJourneyButton(exchange),
+  );
   if (sessionManifest) {
     const quotedUrl = quoteShellArgument(sessionManifest.url);
     actions.append(
@@ -2743,5 +3772,17 @@ function requireSelect(id: string): HTMLSelectElement {
   if (!(element instanceof HTMLSelectElement)) {
     throw new Error(`Missing required select: ${id}`);
   }
+  return element;
+}
+
+function requireDialog(id: string): HTMLDialogElement {
+  const element = document.getElementById(id);
+  if (!(element instanceof HTMLDialogElement)) throw new Error(`Missing required dialog: ${id}`);
+  return element;
+}
+
+function requireSvg(id: string): SVGSVGElement {
+  const element = document.getElementById(id);
+  if (!(element instanceof SVGSVGElement)) throw new Error(`Missing required SVG: ${id}`);
   return element;
 }

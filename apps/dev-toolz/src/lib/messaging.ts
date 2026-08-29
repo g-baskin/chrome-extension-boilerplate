@@ -1,3 +1,4 @@
+import type { IdentityProfile, PurpleFlow, PurpleRun } from "./purple-flow";
 import type { RaceFlow } from "./race-flow";
 import type { RaceRunResult } from "../background/race-runner";
 
@@ -62,6 +63,23 @@ export interface MessageTypes {
   };
 
   CANCEL_RACE_FLOW: {
+    request: { tabId: number; runId: string };
+    response: { cancelled: boolean };
+  };
+
+  RUN_PURPLE_FLOW: {
+    request: {
+      tabId: number;
+      runId: string;
+      expectedPageUrl: string;
+      flow: PurpleFlow;
+      identity: IdentityProfile;
+      authorizationHeader?: string;
+    };
+    response: PurpleRun;
+  };
+
+  CANCEL_PURPLE_FLOW: {
     request: { tabId: number; runId: string };
     response: { cancelled: boolean };
   };

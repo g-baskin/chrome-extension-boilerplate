@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Dev Toolz",
-  "version": "1.7.19",
+  "version": "1.8.5",
   "minimum_chrome_version": "118",
   "homepage_url": "https://backroomsoftware.com",
-  "description": "API traffic, protocol, spec drift, and bounded race inspection for developers",
+  "description": "API traffic, bounded replay, Purple Team evidence, agent protocols, and Arazzo workflows",
   "icons": {
     "16": "public/icons/icon-16.png",
     "32": "public/icons/icon-32.png",

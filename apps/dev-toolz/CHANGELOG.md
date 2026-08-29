@@ -6,6 +6,56 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-08-28
+
+### Fixed
+
+- Invalidated current-site Agent Inspector results when the inspected page changes.
+- Showed the new-traffic refresh notice when returning to cached Agent Inspector results.
+
+## [1.8.4] - 2026-08-28
+
+### Changed
+
+- Made Purple Team navigation immediate by keeping completed Agent Inspector results available when new traffic arrives.
+- Limited automatic Agent Inspector refreshes to the newest 500 records from each traffic source; explicit refresh still inspects retained history.
+
+## [1.8.3] - 2026-08-28
+
+### Changed
+
+- Moved Agent Inspector history analysis to a cancellable worker with paginated reads and bounded results.
+- Cached completed Agent Inspector results until capture history or scope changes.
+
+## [1.8.2] - 2026-08-28
+
+### Fixed
+
+- Restored the Purple Team review-dialog start button ID so the DevTools panel can initialize.
+
+## [1.8.1] - 2026-08-28
+
+### Fixed
+
+- Prevented API capture crashes when Chrome omits HAR protocol metadata.
+- Bounded inspected-page lookups and replaced indefinite loading states with actionable errors.
+
+## [1.8.0] - 2026-08-28
+
+### Added
+
+- Added a dedicated Purple Team tab with Proof Runs, Authorization Matrix, Attack Flow, Agent Inspector, and Journey Studio.
+- Added validated Purple Flow and compact run storage with per-flow retention.
+- Added reviewed, cancellable same-origin replay with separate prevention and detection evidence scoring.
+- Added memory-only Authorization identity comparisons with bounded SHA-256 response evidence.
+- Added Arazzo 1.1 JSON workflow import/export and Attack Flow 2.0 STIX 2.1 export.
+- Added passive, bounded MCP 2026-07-28 and A2A 1.0 traffic recognition and redaction.
+
+### Security
+
+- Purple replay rechecks the exact inspected page, site access, capture integrity, origin, timeout, redirects, and concurrent-run lock before dispatch.
+- Imported documents, protocol payloads, reports, and graphs are bounded and exclude stored identity values, cookies, and response bodies.
+
 ## [1.7.19] - 2026-08-28
 
 ### Added

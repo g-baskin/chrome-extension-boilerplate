@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createApiBody, createRequestBody, redactHeaders, redactUrl } from "./api-traffic";
+import { createApiBody, createRequestBody, normalizeHttpVersion, redactHeaders, redactUrl } from "./api-traffic";
 
 describe("API traffic redaction mode", () => {
+  it("normalizes missing HAR protocol metadata without crashing capture", () => {
+    expect(normalizeHttpVersion(undefined)).toBe("unknown");
+    expect(normalizeHttpVersion("HTTP/2")).toBe("HTTP/2");
+  });
   it("redacts sensitive values by default", () => {
     expect(redactUrl("https://api.example.test/users?access_token=secret")).toContain(
       "access_token=%3Credacted%3E"

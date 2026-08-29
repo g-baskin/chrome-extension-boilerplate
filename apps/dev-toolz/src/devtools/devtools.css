@@ -1209,6 +1209,121 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.purple-team-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  overflow-x: auto;
+}
+
+.purple-team-nav button {
+  min-width: max-content;
+}
+
+.purple-tool {
+  padding-block-end: 24px;
+}
+
+.purple-tool h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.purple-table-region,
+.purple-graph-workspace,
+.purple-split {
+  margin: 12px;
+}
+
+.purple-table-region table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.purple-table-region th,
+.purple-table-region td {
+  padding: 8px;
+  border-block-end: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.purple-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
+  gap: 12px;
+}
+
+.purple-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-inline-start: 28px;
+}
+
+.purple-list > li {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.purple-graph-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.purple-graph {
+  width: 100%;
+  min-height: 260px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 6px;
+  background: Canvas;
+}
+
+.purple-journey-steps button,
+#purple-auth-identities button {
+  margin-inline-start: 6px;
+}
+
+#purple-review-dialog {
+  width: min(640px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  border: 1px solid color-mix(in srgb, CanvasText 24%, transparent);
+  border-radius: 8px;
+  background: Canvas;
+  color: CanvasText;
+}
+
+#purple-review-dialog::backdrop {
+  background: color-mix(in srgb, CanvasText 45%, transparent);
+}
+
+.purple-review-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.purple-review-dialog h2,
+.purple-review-dialog p {
+  margin: 0;
+}
+
+.purple-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: start;
+}
+
+.purple-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 #race-results {
   padding: 12px;
 }
@@ -1308,6 +1423,11 @@ pre {
     border-right: 0;
     border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   }
+
+  .purple-split,
+  .purple-graph-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 600px) {
@@ -1334,5 +1454,19 @@ pre {
 
   .log-result dl {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .section-nav {
+    overflow-x: auto;
+  }
+
+  .section-nav button {
+    min-width: max-content;
+  }
+
+  .purple-table-region,
+  .purple-graph-workspace,
+  .purple-split {
+    margin-inline: 8px;
   }
 }
