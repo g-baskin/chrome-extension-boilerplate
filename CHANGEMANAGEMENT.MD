@@ -23,6 +23,7 @@ This is the internal release and recovery record for Dev Toolz.
 
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
+- GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
 - Release archive: `releases/dev-toolz-1.8.7.zip`.
 - Archive SHA-256: `fd1a0f825b04729c8d7f1813fd77e25201e949597eb97d8f9515aa83ae320746`.
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
@@ -42,6 +43,7 @@ This is the internal release and recovery record for Dev Toolz.
 - Previous candidate: 1.8.6, superseded before runtime acceptance or release.
 - Source commit: `fbdf954`.
 - Release tag: `dev-toolz-v1.8.7`.
+- GitHub Release assets: `dev-toolz-1.8.7.zip` and `dev-toolz-1.8.7.zip.sha256` at https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
 - Release archive: `releases/dev-toolz-1.8.7.zip`.
 - Archive SHA-256: `fd1a0f825b04729c8d7f1813fd77e25201e949597eb97d8f9515aa83ae320746`; `shasum -a 256 -c` passed.
 - Evidence level: runtime verified.
