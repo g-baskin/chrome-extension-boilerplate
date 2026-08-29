@@ -22,7 +22,7 @@ This is the internal release and recovery record for Dev Toolz.
 ## Current repository state
 
 - Last committed Dev Toolz release: **1.7.19** at `6ef12d5` on 2026-08-28.
-- Repository `HEAD`: `fbdf954` on 2026-08-28.
+- Current committed Dev Toolz source: **1.8.7** at `fbdf954`; later documentation commits do not change runtime source.
 - Current working-tree candidate: **1.8.7**.
 - Git tags: none.
 - Tracked release archives and checksums: none.
