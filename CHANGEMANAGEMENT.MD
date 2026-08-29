@@ -21,15 +21,14 @@ This is the internal release and recovery record for Dev Toolz.
 
 ## Current repository state
 
-- Last committed Dev Toolz release: **1.7.19** at `6ef12d5` on 2026-08-28.
-- Current committed Dev Toolz source: **1.8.7** at `fbdf954`; later documentation commits do not change runtime source.
-- Current runtime-verified candidate: **1.8.7**.
-- Git tags: none.
-- Tracked release archives and checksums: none.
-- `apps/dev-toolz/dist` is ignored; its presence is not release evidence.
-- Known rollback source: commit `6ef12d5` for 1.7.19. A known-good packaged artifact has not been recorded.
+- Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
+- Release tag: `dev-toolz-v1.8.7`.
+- Release archive: `releases/dev-toolz-1.8.7.zip`.
+- Archive SHA-256: `fd1a0f825b04729c8d7f1813fd77e25201e949597eb97d8f9515aa83ae320746`.
+- `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
+- Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
 
-## v1.8.7 — 2026-08-28 — Runtime-verified candidate
+## v1.8.7 — 2026-08-28 — Released
 
 ### Intent and scope
 
@@ -42,8 +41,10 @@ This is the internal release and recovery record for Dev Toolz.
 
 - Previous candidate: 1.8.6, superseded before runtime acceptance or release.
 - Source commit: `fbdf954`.
-- Tag, archive, and checksum: pending.
-- Evidence level: runtime-verified candidate.
+- Release tag: `dev-toolz-v1.8.7`.
+- Release archive: `releases/dev-toolz-1.8.7.zip`.
+- Archive SHA-256: `fd1a0f825b04729c8d7f1813fd77e25201e949597eb97d8f9515aa83ae320746`; `shasum -a 256 -c` passed.
+- Evidence level: runtime verified.
 
 ### Pre-build evidence
 
@@ -55,11 +56,20 @@ This is the internal release and recovery record for Dev Toolz.
 - `git diff --check` passed.
 - `npm run build:dev-toolz` passed once after final source verification: 66 modules transformed.
 - `apps/dev-toolz/dist/manifest.json` reports 1.8.7.
-- Chrome runtime acceptance confirmed by the user: panel behavior remained stable; candidate badges appeared before expansion; complete original Purple steps remained unchanged; candidate review/add behavior worked as expected.
+- Chrome runtime acceptance confirmed by the user: fresh install, upgrade/data preservation, popup, capture/log behavior, controls, Chrome Errors, panel stability, candidate highlighting, complete original Purple flow review, and candidate adding passed.
 
 ### Verdict
 
-**Runtime verified; release identity pending.** Do not call 1.8.7 released until tag/archive/checksum policy is completed or explicitly waived.
+**Released.** Runtime source, production archive, checksum, Chrome acceptance, and release tag are recorded.
+
+### Release closeout
+
+- Outcome: Released.
+- What worked: build identity, fresh install, upgrade/data preservation, popup, capture/log paths, controls, DevTools stability, and Red/Purple candidate workflows.
+- What failed: no release-blocking failure reported during final Chrome acceptance.
+- Detection method: automated checks plus user-confirmed Chrome smoke testing.
+- Rollback target: tracked 1.8.7 archive for exact recovery; previous source fallback remains 1.7.19 at `6ef12d5`.
+- Permanent guardrail owner: repository maintainers must preserve version synchronization, immutable archives, checksums, and runtime acceptance evidence.
 
 ## v1.8.6 — 2026-08-28 — Superseded build candidate
 
@@ -364,7 +374,7 @@ The ledger includes every version documented in `apps/dev-toolz/CHANGELOG.md`. �
 | 1.8.4 | 2026-08-28 | Superseded build candidate | Bounded automatic inspection landed; final review found stale current-site cache gaps. |
 | 1.8.5 | 2026-08-28 | Build-verified candidate | Correct current-site invalidation and visible dirty-cache refresh state. |
 | 1.8.6 | 2026-08-28 | Superseded build candidate | Structural matching landed; final review found partial original-step display and an unbounded text-body path. |
-| 1.8.7 | 2026-08-28 | Runtime-verified candidate | Complete original flow display, bounded candidate matching, and Chrome acceptance confirmed. |
+| 1.8.7 | 2026-08-28 | Released | Complete original flow display, bounded candidate matching, Chrome acceptance, archive, checksum, and tag recorded. |
 
 ## Release record template
 

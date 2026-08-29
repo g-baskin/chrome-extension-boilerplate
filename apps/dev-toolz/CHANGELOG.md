@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Reused the exact complete Purple step list in candidate review instead of showing matched steps only.
 - Removed a duplicate inspected-origin lookup and bounded text-body candidate matching.
 
+### Release evidence
+
+- [Runtime acceptance, archive checksum, and rollback record](../../CHANGEMANAGEMENT.md#v187--2026-08-28--released)
+
 ## [1.8.6] - 2026-08-28
 
 ### Added
