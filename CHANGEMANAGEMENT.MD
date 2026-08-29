@@ -21,7 +21,7 @@ This is the internal release and recovery record for every app in this repositor
 
 ## Current repository state
 
-- Current LinkedIn Job Finder candidate: **0.1.8**, build-verified source; Chrome runtime acceptance pending.
+- Current LinkedIn Job Finder candidate: **0.1.10**, uncommitted source; verification pending.
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
 - GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
@@ -29,6 +29,34 @@ This is the internal release and recovery record for every app in this repositor
 - Archive SHA-256: `fd1a0f825b04729c8d7f1813fd77e25201e949597eb97d8f9515aa83ae320746`.
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
 - Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
+
+## LinkedIn Job Finder v0.1.10 — 2026-08-29 — Source candidate
+
+### Intent and scope
+
+- Expected outcome: explain that recommendation pages cannot support safe same-pane scanning and direct users to LinkedIn search results.
+- Preserve the bounded search-results scanner; do not navigate away, click “Show all,” broaden permissions, or touch Dev Toolz.
+- Primary risk: users may mistake rendered recommendation links for supported split-pane results.
+- SemVer rationale: forward patch because 0.1.9 was built before final review rejected its unsafe selector broadening.
+
+### Release identity
+
+- Previous usable candidate: 0.1.8, build verified; runtime acceptance remains pending on a supported search-results page.
+- Package, source manifest, and lockfile target 0.1.10.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
+- `npm run typecheck --workspace @chrome-extensions/linkedin-job-finder` passed.
+- `npm run lint` and `npm run typecheck` passed for both workspaces.
+- Production build: pending.
+
+### Verdict
+
+**Quality checks passed.** Production build remains pending; do not reload 0.1.10 yet.
+
+## LinkedIn Job Finder v0.1.9 — 2026-08-29 — Superseded build candidate
+
+### Verdict
+
+**Superseded before runtime.** A broad document-wide card selector was built, then rejected because recommendation-card clicks can navigate away and terminate the same-pane scan. Never load or rebuild 0.1.9.
 
 ## LinkedIn Job Finder v0.1.8 — 2026-08-29 — Build-verified candidate
 

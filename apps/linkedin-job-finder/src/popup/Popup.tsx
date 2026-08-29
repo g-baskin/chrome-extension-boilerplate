@@ -53,7 +53,7 @@ export function Popup() {
     setScanning(false);
     if (!response.ok) { setStatus(response.error); return; }
     setScanResult(response.data);
-    setStatus(`Scanned ${response.data.scanned} jobs; ${response.data.failed} could not be read.`);
+    setStatus(response.data.scanned === 0 ? "Open LinkedIn search results with the job detail pane, then scan again." : `Scanned ${response.data.scanned} jobs; ${response.data.failed} could not be read.`);
   };
 
   const saveCurrent = async () => {
@@ -95,7 +95,7 @@ export function Popup() {
       <button className="secondary" type="button" disabled={scanning} onClick={() => void scanVisible()}>{scanning ? "Scanning…" : "Scan visible jobs"}</button>
       {scanResult && <div className="scan-results">
         <p><strong>{scanResult.eligible.length}</strong> eligible of {scanResult.scanned} scanned</p>
-        {scanResult.eligible.length === 0 ? <p className="help">No eligible visible jobs found.</p> : <ul>{scanResult.eligible.map(({ job }) => <li key={job.id}><a href={job.url} target="_blank" rel="noreferrer">{job.title}<Icon name="arrow" /></a></li>)}</ul>}
+        {scanResult.scanned === 0 ? <p className="help">No supported cards found. Open LinkedIn search results with the job detail pane, then scan again.</p> : scanResult.eligible.length === 0 ? <p className="help">No eligible visible jobs found.</p> : <ul>{scanResult.eligible.map(({ job }) => <li key={job.id}><a href={job.url} target="_blank" rel="noreferrer">{job.title}<Icon name="arrow" /></a></li>)}</ul>}
       </div>}
     </section>
 
