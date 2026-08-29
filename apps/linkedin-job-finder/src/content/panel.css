@@ -1,0 +1,42 @@
+:host {
+  all: initial;
+  color-scheme: light;
+  position: fixed;
+  inset-block-end: 20px;
+  inset-inline-end: 20px;
+  z-index: 2147483647;
+  width: min(340px, calc(100vw - 32px));
+  color: #18212b;
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+.panel { background: #fbf7ef; border: 1px solid #18212b; border-radius: 8px; box-shadow: 0 8px 24px rgb(24 33 43 / 18%); overflow: hidden; }
+.panel-header { min-height: 42px; padding: 8px 12px; border-block-end: 1px solid #c8c0b3; display: flex; align-items: center; gap: 8px; }
+.mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 4px; background: #1857a4; color: #fff; font: 700 11px/1 "SFMono-Regular", Consolas, monospace; }
+.product { font-size: 13px; letter-spacing: .01em; }
+.title { margin: 14px 14px 4px; font-size: 18px; line-height: 1.25; overflow-wrap: anywhere; }
+.meta, .message { margin: 0 14px 14px; color: #4e5660; font-size: 13px; line-height: 1.45; }
+.status { margin: 0; padding: 8px 14px; border-block-end: 1px solid #18212b; color: #fff; font-size: 12px; font-weight: 700; }
+.status--success { background: #17613e; }
+.status--warning { background: #7a4d00; }
+.status--danger { background: #9c2929; }
+.score { margin: 12px 14px 8px; font: 700 12px/1.4 "SFMono-Regular", Consolas, monospace; }
+.ledger { margin: 0 14px 14px; border-block-start: 1px solid #8c867d; }
+.ledger-row { display: grid; grid-template-columns: 72px 1fr; gap: 8px; padding: 7px 0; border-block-end: 1px solid #d7d0c5; font-size: 12px; line-height: 1.35; }
+.ledger-row--matched { border-inline-start: 4px solid #17613e; padding-inline-start: 7px; }
+.ledger-row--missing { border-inline-start: 4px solid #a76700; padding-inline-start: 7px; }
+.ledger-row--excluded { border-inline-start: 4px solid #9c2929; padding-inline-start: 7px; }
+.ledger-label { color: #39424c; }
+.ledger-terms { overflow-wrap: anywhere; }
+.save-button { min-height: 44px; width: calc(100% - 28px); margin: 0 14px 14px; border: 1px solid #0f4486; border-radius: 5px; background: #1857a4; color: #fff; font-family: inherit; font-size: 14px; font-weight: 700; line-height: 1; cursor: pointer; transition: background-color 140ms ease, border-color 140ms ease; }
+.save-button:hover:not(:disabled) { background: #0f4486; }
+.save-button:active:not(:disabled) { background: #0b376e; }
+.save-button:disabled { border-color: #6f7479; background: #6f7479; cursor: default; }
+.save-button:focus { outline: none; }
+.save-button:focus-visible { outline: 3px solid #f7b32b; outline-offset: 2px; }
+.error { margin: -4px 14px 14px; color: #852121; font-size: 12px; font-weight: 700; }
+
+@media (max-width: 480px) { :host { inset-inline: 12px; width: auto; } }
+@media (prefers-reduced-motion: reduce) { .save-button { transition-duration: .01ms; } }
+@media (forced-colors: active) { .panel, .status, .save-button, .ledger-row { border-color: CanvasText; } .status, .save-button { forced-color-adjust: none; } }
