@@ -21,7 +21,7 @@ This is the internal release and recovery record for every app in this repositor
 
 ## Current repository state
 
-- Current LinkedIn Job Finder candidate: **0.1.8**, uncommitted build-verified working tree; runtime acceptance pending.
+- Current LinkedIn Job Finder candidate: **0.1.8**, build-verified source; Chrome runtime acceptance pending.
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
 - GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
@@ -41,7 +41,7 @@ This is the internal release and recovery record for every app in this repositor
 ### Release identity
 
 - Previous candidate: 0.1.7, build verified but not runtime tested.
-- Source state: uncommitted working tree based on `f7fc862`.
+- Implementation commit: `9ea1ffc` (`feat(linkedin): scan visible jobs`).
 - Package, source manifest, and lockfile target 0.1.8.
 - Built extension targets 0.1.8.
 - `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
