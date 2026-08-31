@@ -12,9 +12,11 @@
     "dev": "npm run dev --workspace @chrome-extensions/dev-toolz",
     "dev:dev-toolz": "npm run dev --workspace @chrome-extensions/dev-toolz",
     "dev:linkedin-job-finder": "npm run dev --workspace @chrome-extensions/linkedin-job-finder",
+    "dev:social-finder": "npm run dev --workspace @chrome-extensions/social-finder",
     "build": "npm run build --workspaces --if-present",
     "build:dev-toolz": "npm run build --workspace @chrome-extensions/dev-toolz",
     "build:linkedin-job-finder": "npm run build --workspace @chrome-extensions/linkedin-job-finder",
+    "build:social-finder": "npm run build --workspace @chrome-extensions/social-finder",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

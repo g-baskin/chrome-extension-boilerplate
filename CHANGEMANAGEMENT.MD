@@ -21,7 +21,8 @@ This is the internal release and recovery record for every app in this repositor
 
 ## Current repository state
 
-- Current LinkedIn Job Finder candidate: **0.1.10**, uncommitted source; verification pending.
+- Current Social Finder candidate: **0.2.4**, build and automated fresh-query, unsupported-tab, and cross-site screenshot runtime verified.
+- Current LinkedIn Job Finder candidate: **0.1.11**, uncommitted build-verified source; Chrome runtime acceptance pending.
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
 - GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
@@ -30,7 +31,545 @@ This is the internal release and recovery record for every app in this repositor
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
 - Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
 
-## LinkedIn Job Finder v0.1.10 — 2026-08-29 — Source candidate
+## Social Finder v0.7.1 — 2026-08-31 — On-card running days and review corrections
+
+### Intent and scope
+
+- Show computed running days directly in each detected Ad Library card's Social Finder badge, matching the visible Copycat workflow without private APIs or invented dates.
+- Reconcile badge text/kind every scan and remove stale badges from roots no longer detected.
+- Keep import previews open when storage writes fail; existing saved ads remain unchanged.
+- Preserve all 0.7.0 encrypted backup, collection, filtering, saved-ad, export, and screenshot behavior.
+- Rollback target: build-verified 0.7.0. Package, manifest, and lockfile target 0.7.1.
+- Fast-review corrections: failed storage writes now keep import preview open; badge kind/text is reconciled and stale undetected-root badges are removed.
+- Verification: 47 tests passed across 15 files; repository lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 46 modules; emitted manifest version 0.7.1 verified.
+- Isolated Brave Nike Ad Library runtime: 30 visible Library IDs produced running-day badges; sampled labels included 167, 28, 69, 33, 40, 101, 104, 437, and 115 days.
+- Screenshot: `.gg/screenshots/social-finder-0.7.1-running-days.png` shows the running-day label directly above each source card.
+- Runtime is computed only from Meta's visible start date and current capture time; unavailable dates retain the existing badge without an invented value.
+- Verdict: automated and public Ad Library runtime verified; not released.
+
+## Social Finder v0.7.0 — 2026-08-31 — Encrypted cross-profile backup
+
+### Intent and scope
+
+- Add user-triggered encrypted backup and validated decrypt-preview-merge for saved ads across Chrome profiles.
+- Use native Web Crypto only: PBKDF2-HMAC-SHA-256 with 600,000 iterations, random 16-byte salt, AES-256-GCM, random 12-byte IV, and authenticated format metadata.
+- Never store or log passphrases; clear the in-memory UI value after successful encryption or decryption.
+- Preserve existing saved ads on duplicate keys, validate decrypted plaintext before explicit merge, and leave the current store unchanged on every failure.
+- Rollback target: build-verified 0.6.6. Package, manifest, and lockfile target 0.7.0.
+- Focused verification: encrypted round-trip, wrong-passphrase/unsupported-envelope rejection, passphrase bounds, and duplicate-preserving merge tests passed.
+- Full verification: 45 tests passed across 14 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 46 modules; emitted manifest version 0.7.0 verified; no dependency or permission was added.
+- Isolated Brave UI: encrypted-backup controls rendered at 420 and 320 CSS pixels with no horizontal overflow, a password input, explicit decrypt-preview action, and local-only disclosure. Screenshots: `.gg/screenshots/social-finder-0.7.0-backup-desktop.png` and `.gg/screenshots/social-finder-0.7.0-backup-narrow.png`.
+- Durability: decrypt and validate complete before preview; merge is explicit; existing duplicate records win; failures do not call storage writes.
+- Cryptography reference checked 2026-08-31: OWASP Password Storage Cheat Sheet recommends PBKDF2-HMAC-SHA-256 with 600,000 or more iterations where PBKDF2 is used. AES-GCM format parameters are authenticated as additional data.
+- Recovery limit: a forgotten passphrase cannot be recovered; no escrow or remote copy exists. Cross-profile file transfer and browser download/import acceptance remain manually unverified.
+- Verdict: automated crypto/data-preservation checks and isolated UI verified; not released.
+
+## Social Finder v0.6.6 — 2026-08-31 — Fingerprint memory bound
+
+### Intent and scope
+
+- Bound cached link and media fingerprint components to the same 2,048-character URL ceiling as extraction.
+- Preserve 0.6.5 cache behavior and prevent hostile rendered attributes from inflating retained fingerprints.
+- Rollback target: build-verified 0.6.3. Package, manifest, and lockfile target 0.6.6.
+- Verification: 41 tests passed across 13 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 45 modules; emitted manifest version 0.6.6 verified.
+- Performance evidence remains the immediately preceding isolated 0.6.5 run: cached GET 15.025 ms/call versus explicit RESCAN 160.085 ms/call across 200 calls, a 10.65x ratio. This patch changes only fingerprint bounds.
+- Cache ceiling per live card: normalized text 6,000 characters, at most 100 link components and 48 media components capped at 2,048 characters each; weak keys permit detached cards to be collected.
+- Authenticated large-result timing and long-session heap behavior remain unverified. Verdict: measured behavior retained with bounded fingerprints; not released.
+
+## Social Finder v0.6.5 — 2026-08-31 — Superseded cache freshness candidate
+
+### Intent and scope
+
+- Preserve pre-cache freshness by bypassing the snapshot cache whenever an external page mutation is awaiting its debounced scan.
+- Keep clean ordinary reads cached; explicit rescans and dirty reads still scan exactly once.
+- Rollback target: build-verified 0.6.3. Package, manifest, and lockfile target 0.6.5.
+- Root cause: `GET_SOCIAL_FINDINGS` ignored the cached snapshot and invoked the full DOM scan; each scan also repeated unchanged card extraction, and rendered badges scheduled a second debounced scan.
+- Focused regression: 4 scan-cache tests passed, including clean/dirty GET behavior and a 200-card five-pass guard reducing extractor calls from the uncached 1,000 to 200.
+- Full verification: 41 tests passed across 13 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 45 modules; emitted manifest version 0.6.5 verified.
+- Isolated Brave runtime on the same logged-out Ad Library page, 200 calls each: clean cached GET 15.025 ms/call versus explicit RESCAN 160.085 ms/call, a 10.65x ratio. This includes extension-message overhead and is not authenticated-card performance.
+- Memory bound: card entries use weak DOM keys, so detached page nodes are not retained by the cache.
+- Authenticated large-result performance and long-session heap behavior remain unverified. Verdict: measured clean-read improvement with dirty-read freshness preserved; not released.
+
+## Social Finder v0.6.4 — 2026-08-31 — Superseded scan-cache candidate
+
+### Intent and scope
+
+- Make the existing snapshot cache serve ordinary reads instead of rescanning the full rendered page.
+- Cache unchanged card extraction by weak DOM identity and a bounded visible-content fingerprint; refresh on changed text, links, or media.
+- Ignore Social Finder badge-only mutations so badge rendering cannot schedule a redundant scan.
+- Preserve explicit rescan, visible-card collection, page-change reset, extraction bounds, and all user-facing behavior.
+- Rollback target: build-verified 0.6.3. Version 0.6.4 passed 41 tests, lint, typecheck, production audit, diff, and build checks.
+- Isolated 200-call measurement: clean GET 10.842 ms/call versus RESCAN 129.683 ms/call, an 11.96x ratio.
+- Candidate superseded before release because GET needed to bypass cache while an external mutation was pending.
+
+## Social Finder v0.6.3 — 2026-08-31 — Collect-visible regression coverage
+
+### Intent and scope
+
+- Extract the one-shot collect-visible boundary for focused regression testing without changing its UI contract.
+- Prove exactly one rescan, immediate stop, no scroll/click side effects, and disabled guidance outside Ad Library.
+- Rollback target: build-verified 0.6.2. Package, manifest, and lockfile target 0.6.3.
+- Focused verification: `workspace.test.ts` passed 5 tests covering one rescan, immediate stop, no scroll/click, and disabled guidance.
+- Separate Social Finder typecheck and lint commands passed.
+- Full verification: 37 tests passed across 12 files; production audit and diff check passed.
+- Build: Vite transformed 44 modules; emitted manifest version 0.6.3 verified.
+- Isolated Brave screenshots passed at 420 and 320 CSS pixels with no horizontal overflow: `.gg/screenshots/social-finder-0.6.3-desktop.png` and `.gg/screenshots/social-finder-0.6.3-narrow.png`.
+- Runtime DOM checks confirmed the button label, disabled state, title guidance, and no-scroll/no-click help at both widths.
+- Authenticated enabled-state collection remains unverified. Verdict: focused behavior and visual states verified, not released.
+
+## Social Finder v0.6.2 — 2026-08-31 — Collect visible ads shortcut
+
+### Intent and scope
+
+- Add a large **Collect visible ads** action inside Ad Library search.
+- The action rescans once, collects only currently rendered Ad Library cards, stops immediately, and never scrolls or clicks.
+- Rollback target: build-verified 0.6.1. Package, manifest, and lockfile target 0.6.2.
+- Verification: 35 tests passed across 12 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 44 modules; emitted manifest version 0.6.2 verified.
+- Authenticated visible-card acceptance remains unverified. Verdict: build verified, not released.
+
+## Social Finder v0.6.1 — 2026-08-31 — Phase 4 narrow-width correction
+
+### Intent and scope
+
+- Correct horizontal overflow found by isolated Brave runtime at a 320 CSS-pixel viewport.
+- Preserve all 0.6.0 behavior; rollback target remains build-verified 0.5.0 until this correction is verified.
+- Target version: 0.6.1; package, manifest, and lockfile synchronized.
+
+### Verification evidence
+
+- `npm test --workspace @chrome-extensions/social-finder`: 35 tests passed across 12 files.
+- Workspace lint/typecheck, production audit, and `git diff --check`: passed.
+- `npm run build:social-finder`: passed; Vite transformed 44 modules.
+- Emitted manifest: 0.6.1, exact Facebook content matches, approved `activeTab`/`downloads`/`sidePanel`/`storage` plus user-triggered screenshot host boundary, and unchanged CSP verified.
+- Isolated Brave runtime: extension 0.6.1 loaded; public Nike Ad Library reached its logged-out state; no authenticated ad cards were available.
+- 320 CSS-pixel runtime: document and body widths were 305 CSS pixels after scrollbar allocation with no horizontal overflow. Screenshot: `.gg/screenshots/social-finder-0.6.1-320px.png`.
+- Chrome Web Store engineering review: current official Limited Use, permissions, data handling, and side-panel quality pages require disclosed single purpose, browsing data only for prominent user-facing functionality, and narrow permissions. Local-only rendered-card research aligns; `<all_urls>` requires prominent screenshot disclosure and store-review justification.
+- Meta legal pages rejected automated retrieval in this environment. Distribution policy review remains unresolved and is not legal advice.
+- Security review: hostile nested messages/storage/imports, URLs, screenshot replacement, permissions, XSS sinks, automation, hidden egress, and exports reviewed; no raw HTML, private request, or unattended browsing path remained.
+- Quality review corrections: added ad type, Saved search, nested preference validation, 44-pixel repeated targets, merge feedback, and narrow-width correction.
+- Authenticated Nike/Adidas, restart persistence, browser share/download, cross-site screenshot, 200% text, forced-colors, and representative screen-reader acceptance remain unverified.
+- Rollback target: build-verified 0.5.0. Verdict: automated and isolated narrow runtime verified; not released.
+
+## Social Finder v0.6.0 — 2026-08-31 — Superseded Phase 4 candidate
+
+### Intent and scope
+
+- Add local search ideas, evidence-only analysis prompts, preferences, validated own-format import, and final responsive/accessibility/state closure.
+- No remote request, model call, telemetry, or prompt persistence beyond explicit preferences.
+- Previous build-verified candidate: 0.5.0. Version 0.6.0 synchronized and built after 35 tests, lint, typecheck, production audit, diff, emitted-manifest, CSP, permissions, and exact-match checks passed.
+- Isolated 320 CSS-pixel Brave runtime found horizontal overflow from the body minimum width. Candidate superseded by 0.6.1 without release.
+
+## Social Finder v0.5.0 — 2026-08-31 — Pending Phase 3 candidate
+
+### Intent and scope
+
+- Add versioned local saved ads/preferences, safe JSON/CSV export, validated card actions, Saved view, retention controls, and destructive confirmation.
+- Add only `storage` and `downloads`; screenshots and transient collection remain memory-only.
+- Previous build-verified candidate: 0.4.0. Package, manifest, and lockfile target 0.5.0.
+- Verification: 30 tests passed across 10 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 42 modules; emitted 0.5.0 includes `storage` and `downloads`, unchanged CSP, and exact Facebook matches.
+- Chrome restart/action smoke remains unverified; verdict is build verified, not released.
+
+## Social Finder v0.4.0 — 2026-08-31 — Pending Phase 2 candidate
+
+### Intent and scope
+
+- Add explicit bounded manual collection, stable deduplication, honest counts, deterministic filters/sorts, and query reset behavior.
+- Collection never scrolls or clicks; default and absolute caps are 500 unique records.
+- Previous build-verified candidate: 0.3.0. Package, manifest, and lockfile target 0.4.0.
+- Verification: 26 tests passed across 8 files; workspace lint/typecheck, production audit, and diff check passed.
+- Build: Vite transformed 40 modules; emitted version 0.4.0 and exact Facebook matches verified.
+- Chrome authenticated manual-scroll smoke remains unverified; verdict is build verified, not released.
+
+## Social Finder v0.3.0 — 2026-08-31 — Pending Phase 1 candidate
+
+### Intent and scope
+
+- Approved clean-room scope: extract bounded facts from rendered Meta Ad Library cards, keep Feed and Marketplace unchanged, scope updates to the active tab and query, add explicit public-search controls, and replace the result list with a compact research workspace.
+- Data boundary: visible DOM facts only; no private API interception, automatic scrolling/clicking, remote service, copied selector, credential, identifier, asset, prompt, or style.
+- Stored-data implications: none in Phase 1; records and screenshots remain memory-only.
+- SemVer rationale: minor candidate adds a user-visible Ad Library record contract and search workflow.
+- Target version: 0.3.0. Package, manifest, and lockfile synchronized.
+
+### Verification evidence
+
+- `npm test --workspace @chrome-extensions/social-finder`: 23 tests passed across 7 files.
+- Workspace lint and typecheck: passed for all three workspaces.
+- Production dependency audit: 0 vulnerabilities; `git diff --check`: passed.
+- `npm run build:social-finder`: passed; Vite transformed 39 modules.
+- Emitted manifest: version 0.3.0, exact Facebook content-script matches, unchanged CSP, and `activeTab`/`sidePanel` permissions verified.
+- Chrome authenticated smoke: unverified in this automated environment; 0.2.4 remains the runtime rollback candidate.
+- Verdict: build verified, not released.
+
+### Recovery and stop conditions
+
+- Rollback target: runtime-verified Social Finder 0.2.4; no data migration.
+- Stop when visible facts cannot be extracted deterministically, permissions broaden, checks fail repeatedly, or authenticated acceptance is required.
+
+## Social Finder v0.2.4 — 2026-08-31 — Source correction
+
+### Intent and scope
+
+- Expected outcome: unsupported rescans show Facebook-only guidance, new Ad Library searches replace stale side-panel results, and screenshots work after navigating to external ad destinations.
+- Root causes: rescans messaged unsupported tabs; the detector observed only child-list mutations and the side panel received no push updates; persistent side panels lost temporary `activeTab` grants after cross-origin navigation.
+- Exact fixes: validate tab eligibility, key scans by normalized Facebook URL/query, observe text mutations, poll SPA URL changes, push bounded snapshots to the side panel, and grant `<all_urls>` only for user-triggered visible-tab capture.
+- Explicitly out of scope: non-Facebook content scripts, remote screenshot upload/storage, private APIs, new dependencies, or unrelated cleanup.
+- SemVer rationale: patch correction for three connected real-Chrome workflow failures.
+
+### Release identity
+
+- Previous candidate: 0.2.3, Facebook detection verified; unsupported rescans, stale-query updates, and cross-site screenshot capture rejected.
+- Package, source manifest, and lockfile target 0.2.4.
+- Builder/owner: GG Coder on `feature/social-finder`; protected environments untouched.
+
+### Pre-build evidence
+
+- Intended diff: tab eligibility, query identity/reset, mutation and URL refresh, push updates, screenshot permission, regression tests, synchronized files, and release evidence.
+- Permission decision: replace exact host permissions with `<all_urls>` for reliable user-triggered capture; content scripts remain exact-Facebook and no network/storage path is added.
+- Dependency decision: unchanged.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.2.4.
+- `npm test --workspace @chrome-extensions/social-finder`: 16 tests passed across 4 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `git diff --check`: passed.
+- Final security review: no confirmed findings; `<all_urls>` is confined to deliberate capture, content injection remains Facebook-only, and no egress/persistence path exists.
+- Final quality review: runtime fixes passed; exact user-profile Chrome reload and full release checklist remain blockers, with integration-test coverage tracked as follow-up.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 36 modules and emitted version 0.2.4.
+- Emitted manifest: `<all_urls>` host access verified; content-script matches remained exact Facebook hosts.
+- Fresh-query runtime: Nike had 29 findings; navigating to Adidas produced 30 findings with a new first Library ID and only 1 overlapping ID.
+- Push-update runtime: the open side panel automatically changed to 30 Adidas-query results and advertiser titles without reopening.
+- Unsupported Nike runtime: initial load and **Rescan visible page** both showed `Ad rescanning works only on Meta Ad Library, Facebook Feed, or Marketplace.`; no raw receiver error appeared.
+- Cross-site screenshot runtime: Nike capture succeeded without a permission error, produced a 735,654-character PNG data URL, and rendered the in-memory preview/download.
+- Screenshot evidence: `.gg/screenshots/social-finder-0.2.4-fresh-adidas-query-brave.png` and `.gg/screenshots/social-finder-0.2.4-unsupported-nike-capture-brave.png`.
+- Existing Library-ID classification, no-egress behavior, and clear/close memory ownership remain unchanged.
+
+### Verdict
+
+**Build and automated runtime verified; not released.** Fresh searches, unsupported rescans, push updates, and cross-site screenshots passed; user-profile Chrome reload remains.
+
+### Recovery and prevention
+
+- Rollback target: unload 0.2.4 and return to 0.2.3; no persisted data exists.
+- Permanent guardrails: never message unsupported tabs; query changes clear stale state before delayed rescanning; all-tab access is used only for deliberate visible-tab capture and never for content injection or egress.
+
+## Social Finder v0.2.3 — 2026-08-31 — Source correction
+
+### Intent and scope
+
+- Expected outcome: preserve v0.2.2 Ad Library behavior and make **Take screen snapshot** work from the real Chrome side panel.
+- Root cause: declarative `openPanelOnActionClick` opened the panel without retaining the temporary `activeTab` grant required by `captureVisibleTab`; Chrome returned `Either the '<all_urls>' or 'activeTab' permission is required.`
+- Exact fix: disable declarative action opening and open the side panel inside `chrome.action.onClicked`, where the toolbar click grants `activeTab` to that tab.
+- Explicitly out of scope: broad `<all_urls>` permission, new features, dependencies, private APIs, or unrelated cleanup.
+- SemVer rationale: patch correction after user-profile Chrome acceptance exposed the capture permission failure.
+
+### Release identity
+
+- Previous candidate: 0.2.2, Ad Library verified but screenshot capture runtime rejected.
+- Package, source manifest, and lockfile target 0.2.3.
+- Builder/owner: GG Coder on `feature/social-finder`; protected environments untouched.
+
+### Pre-build evidence
+
+- Intended diff: one background action-flow correction plus synchronized version and release files.
+- Permission/dependency decision: unchanged; keep exact Facebook hosts, `activeTab`, and `sidePanel`; add nothing.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.2.3.
+- `npm test --workspace @chrome-extensions/social-finder`: 12 tests passed across 3 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `git diff --check`: passed.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 35 modules and emitted version 0.2.3.
+- Emitted manifest: version 0.2.3 verified with background, side-panel, popup, and content assets.
+- User-profile Chrome rerun: Facebook snapshot preview appeared after extension reload and toolbar click (user-confirmed).
+- External-navigation evidence: opening a Nike destination revoked Chrome's temporary `activeTab` grant, so capture correctly failed closed until the user clicks Social Finder's toolbar icon again on that page.
+- Existing Ad Library detection evidence remains valid because detector code is unchanged.
+
+### Verdict
+
+**Build and Facebook snapshot preview verified; not released.** External destinations intentionally require a fresh toolbar click; drag/download and remaining release smoke are pending.
+
+### Recovery and prevention
+
+- Rollback target: unload 0.2.3 and return to 0.2.2; no persisted data exists.
+- Permanent guardrail: screenshot capture keeps least privilege; never replace the toolbar grant with `<all_urls>`.
+
+## Social Finder v0.2.2 — 2026-08-31 — Runtime-rejected capture candidate
+
+### Intent and scope
+
+- Expected outcome: preserve live Ad Library detection while showing the advertiser name instead of the generic “Sponsored” label in side-panel result titles.
+- Root cause: generic heading extraction selected Meta's repeated placement label before the advertiser name.
+- Exact fix: derive the advertiser from the bounded visible `See ad details … Sponsored` segment and strip zero-width formatting characters during normalization.
+- Explicitly out of scope: any additional parity feature, private API, automation, or unrelated cleanup.
+- SemVer rationale: patch correction after 0.2.1 runtime acceptance exposed weak result titles.
+
+### Release identity
+
+- Previous candidate: 0.2.1, live Ad Library detection verified but title quality rejected.
+- Package, source manifest, and lockfile target 0.2.2.
+- Builder/owner: GG Coder on `feature/social-finder`; protected environments untouched.
+
+### Pre-build evidence
+
+- Intended diff: one pure extraction correction, its fixture assertion, synchronized version files, and release evidence.
+- Dependency/permission decision: unchanged.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.2.2.
+- `npm test --workspace @chrome-extensions/social-finder`: 12 tests passed across 3 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `npm audit --omit=dev --workspace @chrome-extensions/social-finder`: 0 vulnerabilities.
+- `git diff --check`: passed.
+- Final security review: no confirmed findings across DOM trust boundaries, messaging, links, capture, drag/download, permissions, egress, and dependency scope.
+- Final quality review: deterministic gates and focused Ad Library objective passed; authenticated Feed, toolbar-granted capture, navigation/reset, accessibility, unsupported-page, and final-candidate network smoke remain pre-release checks.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 35 modules and emitted version 0.2.2.
+- Live Nike Ad Library: 29 visible Library IDs produced 29 badges and 29 unique findings.
+- Diagnostics: 30 candidates, 1 rejected candidate, 29 detected, 0 render failures, 0 extension-text pollution, and no observed runtime exception.
+- Advertiser correction: sampled titles resolved to `Nike`, `Flipkart`, `Nike`, `Nike`, and `Nike`; canonical Library-ID links matched.
+- Side panel: rendered all 29 live findings with matching total, advertiser titles, result links, no alert, and the screenshot action present.
+- Screenshot evidence: `.gg/screenshots/social-finder-0.2.2-ad-library-brave.png` and `.gg/screenshots/social-finder-0.2.2-ad-library-side-panel-brave.png`.
+- Marketplace and snapshot capture/drag/clear behavior were previously runtime verified; their built popup bundle remained unchanged.
+- Authenticated Facebook Feed detection and the exact toolbar-granted `activeTab` capture path still require the user's loaded profile.
+
+### Verdict
+
+**Ad Library verified; screenshot capture runtime rejected; never release 0.2.2.** Real Chrome showed the action-opened panel lacked the temporary `activeTab` grant.
+
+### Recovery and prevention
+
+- Rollback target: unload 0.2.2 and return to 0.2.1; no persisted data exists.
+- Permanent guardrail: Ad Library fixture coverage asserts both authoritative ID and advertiser title.
+
+## Social Finder v0.2.1 — 2026-08-31 — Runtime-rejected title candidate
+
+### Intent and scope
+
+- Expected outcome: detect visible Meta Ad Library cards by authoritative numeric Library ID, badge them, and list canonical detail links in the side panel.
+- User direction: Facebook Ads and Copycat-visible workflows are primary; Marketplace is secondary.
+- Exact implementation: add the Ad Library route, bounded visible-text candidate discovery, Library-ID classification/deduplication, labels, tests, and screenshot-backed parity priorities.
+- Explicitly out of scope: private GraphQL interception, React Fiber reads, copied Copycat code/assets, unattended auto-scroll, media download, remote services, and later parity rows.
+- Primary risks: localized Library-ID labels, nested cards containing multiple IDs, Meta DOM drift, and false card boundaries.
+- Stored-data implications: unchanged; findings and one optional screenshot remain memory-only.
+- SemVer rationale: patch because 0.2.0 was built before the user narrowed initial product focus to Meta Ad Library.
+
+### Release identity
+
+- Previous candidate: 0.2.0, side-panel screenshot runtime verified under the capture harness.
+- Package, source manifest, and lockfile target 0.2.1.
+- Builder/owner: GG Coder on `feature/social-finder`.
+- Protected environments: untouched.
+
+### Pre-build evidence
+
+- Intended diff: one Ad Library adapter path, detector and route tests, parity/docs updates, and synchronized release files.
+- Dependency/permission decision: no new package or permission.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.2.1.
+- `npm test --workspace @chrome-extensions/social-finder`: 12 tests passed across 3 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `npm audit --omit=dev --workspace @chrome-extensions/social-finder`: 0 vulnerabilities.
+- `git diff --check`: passed.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 35 modules and emitted version 0.2.1.
+- Live Meta Ad Library: Nike search loaded over 50,000 results without an authenticated profile; 29 visible cards were badged.
+- Content snapshot: 30 candidates, 29 unique findings, 1 rejected candidate, 0 render failures, and 0 extension-text pollution.
+- Identity evidence: all 29 findings used unique visible Library IDs and canonical `?id=<library-id>` links.
+- Runtime title rejection: sampled findings used generic `Sponsored` titles instead of Nike/Flipkart advertiser names.
+- Screenshot evidence: `.gg/screenshots/social-finder-0.2.1-ad-library-brave.png`.
+- Existing Marketplace and side-panel capture behavior remained unchanged by the Ad Library adapter.
+
+### Verdict
+
+**Detection verified; title quality rejected; never release 0.2.1.** Ad Library identification worked, but side-panel titles were not useful enough.
+
+### Recovery and prevention
+
+- Rollback target: unload 0.2.1 and return to 0.2.0; no persisted data or migration exists.
+- Permanent guardrail: an Ad Library finding requires an explicit visible numeric Library ID and fails closed otherwise.
+
+## Social Finder v0.2.0 — 2026-08-31 — Runtime-verified candidate
+
+### Intent and scope
+
+- Expected outcome: replace the transient popup with a persistent action-opened side panel, capture the active Facebook viewport on a deliberate click, and expose a draggable/downloadable PNG for GG Coder handoff.
+- Copycat direction: persist a clean-room parity matrix covering every code-observed capability and mark authenticated interaction details that require screenshots.
+- Explicitly out of scope: remote screenshot sending/storage, copied Copycat code/assets/branding/backend behavior, private Facebook APIs, unattended automation, authentication, billing, and implementation of later parity rows.
+- Primary risks: capturing personal screen content without clear intent, oversized data URLs, stale in-memory screenshots, incorrect active-tab selection, broken drag payloads, and added host-permission drift.
+- Stored-data implications: one bounded PNG data URL exists only in side-panel memory until replaced, cleared, or closed.
+- SemVer rationale: minor bump for a new persistent workspace and screenshot handoff capability.
+
+### Release identity
+
+- Previous candidate: 0.1.1, Marketplace runtime verified but Feed-auth blocked.
+- Package, source manifest, and lockfile target 0.2.0.
+- Builder/owner: GG Coder on `feature/social-finder`.
+- Protected environments: untouched; local source and isolated Chromium only.
+
+### Pre-build evidence
+
+- Intended diff: side-panel manifest/background wiring, screenshot capture/validation/drag UI, tests, clean-room parity map, docs, and synchronized release files.
+- Permission decision: add only exact Facebook host access and `sidePanel`; retain `activeTab`; add no `tabs`, downloads, clipboard, storage, or network permission.
+- Dependency decision: no new package.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.2.0.
+- `npm test --workspace @chrome-extensions/social-finder`: 11 tests passed across 3 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `npm audit --omit=dev --workspace @chrome-extensions/social-finder`: 0 vulnerabilities.
+- `git diff --check`: passed.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 35 modules and emitted version 0.2.0.
+- Side-panel behavior: `chrome.sidePanel.getPanelBehavior()` returned `openPanelOnActionClick: true`.
+- Marketplace regression: 18 live findings rendered with 18 candidates, 0 rejected, and 0 render failures.
+- Shipping-permission automation limit: headless/programmatic extension pages do not receive the toolbar action's temporary `activeTab` grant.
+- Capture harness: an isolated runtime-only manifest copy added `<all_urls>` solely to exercise the same built capture code; shipping source retained exact Facebook hosts plus `activeTab`.
+- Screenshot capture: produced a validated 2400×1466 PNG data URL (2,283,126 characters), rendered its preview, and exposed a download.
+- Drag handoff: emitted `DownloadURL` and `text/uri-list` payloads with a timestamped PNG filename.
+- Clear action: removed the in-memory snapshot; no alert or runtime exception was observed.
+- Screenshot evidence: `.gg/screenshots/social-finder-0.2.0-side-panel-snapshot-brave.png`.
+- Feed detection acceptance remains blocked by authentication until the side-panel handoff runs from the user's profile.
+
+### Verdict
+
+**Runtime verified; superseded by 0.2.1 before release.** Detection, side-panel rendering, capture, drag/download payload, and clear behavior worked; the exact toolbar-granted `activeTab` path remains for user-profile smoke.
+
+### Recovery and prevention
+
+- Rollback target: unload 0.2.0 and return to the 0.1.1 source candidate; no persisted screenshots or migrations exist.
+- Permanent guardrails: user gesture before capture, exact Facebook hosts, PNG type/size validation, one in-memory image, explicit clear, no upload path, and parity work one version at a time.
+
+## Social Finder v0.1.1 — 2026-08-31 — Source correction
+
+### Intent and scope
+
+- Expected outcome: preserve v0.1.0 detection while excluding extension-owned badge text from subsequent extraction snapshots.
+- Root cause: observer-driven rescans read the prepended Social Finder badge through `innerText`, contaminating Marketplace titles and snippets.
+- Exact fix: ignore badge elements during label collection and remove badge text before title/snippet normalization.
+- Explicitly out of scope: Copycat feature parity, screenshot capture, drag-and-drop, persistence, private APIs, other apps, and unrelated cleanup.
+- SemVer rationale: patch correction after v0.1.0 runtime acceptance exposed polluted extracted text.
+
+### Release identity
+
+- Previous candidate: 0.1.0, runtime rejected.
+- Package, source manifest, and lockfile target 0.1.1.
+- Builder/owner: GG Coder on `feature/social-finder`.
+- Protected environments: untouched; isolated Brave profile only.
+
+### Pre-build evidence
+
+- Intended diff reviewed: one extraction correction, synchronized Social Finder release files, and `.gg/runtime/` ignore coverage for isolated browser profiles.
+- Dependency decision: no new package.
+- Version synchronization: package, source manifest, and lockfile comparison passed for 0.1.1.
+- `npm test --workspace @chrome-extensions/social-finder`: 8 tests passed across 2 files.
+- `npm run lint` and `npm run typecheck`: passed for all 3 workspaces.
+- `git diff --check`: passed.
+
+### Build and runtime evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 33 modules.
+- Emitted manifest: version 0.1.1 verified with popup and content-script JS/CSS assets present.
+- Automated runtime: Brave 145 loaded the unpacked extension from `apps/social-finder/dist`; branded Google Chrome 151 rejected command-line extension loading.
+- Marketplace page: 20 visible item cards produced 20 badges; content snapshot reported 20 candidates, 20 findings, 0 rejected, and 0 render failures.
+- Correction acceptance: all 20 titles/snippets excluded Social Finder badge text; two sampled canonical URLs and IDs matched their cards.
+- Popup harness: rendered all 20 live findings, matched the content count, exposed result links, and reported no alert or observed runtime exception.
+- Screenshot evidence: `.gg/screenshots/social-finder-0.1.1-marketplace-brave.png` and `.gg/screenshots/social-finder-0.1.1-popup-marketplace-brave.png`.
+- Facebook Feed acceptance: blocked by Facebook authentication in the isolated browser profile; the login-only screenshot is `.gg/screenshots/social-finder-facebook-feed.png`.
+
+### Verdict
+
+**Marketplace runtime verified; not released.** The v0.1.0 extraction defect is corrected. Authenticated Facebook Feed sponsored-post acceptance remains blocked.
+
+### Recovery and prevention
+
+- Rollback target: remove the unpacked 0.1.1 build and return to source before this candidate; no stored data requires migration.
+- Permanent guardrail: extension-owned UI must never become detector input.
+
+## Social Finder v0.1.0 — 2026-08-31 — Runtime-rejected candidate
+
+### Intent and scope
+
+- Expected outcome: badge visible sponsored Facebook Feed posts, Marketplace listings, and visibly promoted Marketplace listings; show bounded current-page results and diagnostics in the popup.
+- Explicitly out of scope: private Facebook APIs, request interception, React internals, automated scrolling/clicking, remote upload, persistence, media download, Ads Library, other social networks, and other repository apps.
+- Primary risks: Facebook DOM and localization drift, false paid-placement labels, duplicate Marketplace anchors, content-script mutation cost, broad data collection, and version drift.
+- Stored-data implications: none; v0.1.0 keeps findings in content-script memory and clears them on navigation or refresh.
+- SemVer rationale: initial application version 0.1.0.
+
+### Release identity
+
+- Previous version: none.
+- Package, source manifest, and lockfile target 0.1.0.
+- Builder/owner: GG Coder on `feature/social-finder`.
+- Protected environments: untouched; local repository and unpacked Chrome candidate only.
+
+### Pre-build evidence
+
+- Intended diff reviewed: Social Finder app, root workspace scripts, lock metadata, and this release record only.
+- Dependency decision: no new package; reuse the repository's pinned React, Vite, TypeScript, Vitest, ESLint, and CRXJS toolchain.
+- Version synchronization: `node -e` package/manifest/lock comparison passed for 0.1.0.
+- Tests: `npm test --workspace @chrome-extensions/social-finder` passed, 8 tests across 2 files.
+- Repository lint: `npm run lint` passed for all 3 workspaces.
+- Repository typecheck: `npm run typecheck` passed for all 3 workspaces.
+- `git diff --check`: passed.
+- Production dependency audit: `npm audit --omit=dev --workspace @chrome-extensions/social-finder` passed with 0 vulnerabilities.
+- Security review: no confirmed findings; runtime Facebook behavior and Chrome errors remain unchecked.
+- Quality review: conditional pass; real DOM acceptance and browser-level integration coverage remain pending.
+
+### Build and Chrome evidence
+
+- Production build: `npm run build:social-finder` passed; Vite transformed 33 modules.
+- Built manifest verification: `apps/social-finder/dist/manifest.json` matches source version 0.1.0.
+- Required popup and content-script assets: verified in `dist` (popup HTML/JS/CSS and content JS/CSS).
+- Automated Google Chrome 151 acceptance: blocked because branded Chrome no longer honors command-line unpacked-extension loading.
+- Automated Brave 145 Marketplace smoke: extension loaded; content script activated; 20 visible listings were badged with zero observed runtime errors.
+- Popup harness smoke: content-script message returned 18 current listings with 18 candidates, 0 rejected, and 0 render failures; popup rendered all 18.
+- Runtime rejection: observer rescans included extension-owned badge text in every Marketplace title/snippet.
+- Facebook Feed smoke: blocked by Facebook authentication in the isolated profile; only the login page was reachable.
+- Screenshots: `.gg/screenshots/social-finder-facebook-feed.png`, `.gg/screenshots/social-finder-marketplace-badges-brave.png`, and `.gg/screenshots/social-finder-popup-marketplace-brave.png`.
+
+### Verdict
+
+**Runtime rejected; never release or rebuild 0.1.0.** Marketplace detection worked, but extracted result text was polluted by extension-owned badges; authenticated Feed acceptance was unavailable.
+
+### Recovery and prevention
+
+- Rollback target: remove the unpacked Social Finder extension and discard `feature/social-finder`; no stored data requires migration.
+- Permanent guardrails: strict Facebook URL parsing, bounded scans, exact paid-label evidence, no private request interception, no remote data path, fixture tests, and the app control model.
+
+## LinkedIn Job Finder v0.1.11 — 2026-08-29 — Source candidate
+
+### Intent and scope
+
+- Expected outcome: discover visible split-pane list cards outside LinkedIn's `<main>` element while refusing recommendation-page navigation.
+- Require a readable current detail-pane job before collecting document-wide `/jobs/view/` and `currentJobId` anchors.
+- Preserve the 10-job cap, sequential scanning, restoration, no “Show all,” no auto-save, narrow permissions, and untouched Dev Toolz.
+- Primary risks: LinkedIn SPA timing and unrelated job anchors on supported split-pane pages.
+- SemVer rationale: forward patch because Chrome showed five visible cards while 0.1.10 discovered only the detail-title anchor.
+
+### Release identity
+
+- Previous candidate: 0.1.10, build verified but runtime rejected for incomplete card discovery.
+- Package, source manifest, and lockfile target 0.1.11.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed for both workspaces.
+- Version synchronization and `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.11.
+
+### Verdict
+
+**Build verified; runtime pending.** Reload the exact 0.1.11 build and rescan the same split-pane results.
+
+## LinkedIn Job Finder v0.1.10 — 2026-08-29 — Runtime-rejected candidate
 
 ### Intent and scope
 
@@ -46,11 +585,21 @@ This is the internal release and recovery record for every app in this repositor
 - `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
 - `npm run typecheck --workspace @chrome-extensions/linkedin-job-finder` passed.
 - `npm run lint` and `npm run typecheck` passed for both workspaces.
-- Production build: pending.
+- Package, source manifest, and lockfile synchronization passed for 0.1.10.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.10.
+- Built popup contains the supported-page guidance.
+- Chrome partial smoke passed: 0.1.10 popup opened and displayed the supported-page guidance for a recommendation page with zero scanned cards.
+- Chrome split-pane smoke discovered one visible card and reported `0 eligible of 1 scanned`.
+- Chrome confirmed `0 could not be read`; the discovered card was extracted and evaluated successfully.
+- LinkedIn reported 88 total results, which are intentionally outside the bounded visible-card scope.
+- Chrome screenshot showed five visible list cards, confirming incomplete discovery.
+- Source commit: `9aaca93` (`Update LinkedIn scan guidance`).
 
 ### Verdict
 
-**Quality checks passed.** Production build remains pending; do not reload 0.1.10 yet.
+**Runtime rejected.** The exact build read its single discovered anchor, but missed four visible list cards outside `<main>`.
 
 ## LinkedIn Job Finder v0.1.9 — 2026-08-29 — Superseded build candidate
 

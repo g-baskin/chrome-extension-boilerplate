@@ -1,6 +1,6 @@
 {
-  "name": "@chrome-extensions/linkedin-job-finder",
-  "version": "0.1.11",
+  "name": "@chrome-extensions/social-finder",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "scripts": {

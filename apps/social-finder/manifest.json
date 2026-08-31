@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Social Finder",
+  "version": "0.7.1",
+  "minimum_chrome_version": "118",
+  "description": "Detect visible sponsored Facebook posts and Facebook Marketplace listings locally.",
+  "action": {
+    "default_title": "Open Social Finder workspace"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/popup/popup.html"
+  },
+  "permissions": ["activeTab", "downloads", "sidePanel", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["https://facebook.com/*", "https://www.facebook.com/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  }
+}
