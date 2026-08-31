@@ -21,7 +21,7 @@ This is the internal release and recovery record for every app in this repositor
 
 ## Current repository state
 
-- Current LinkedIn Job Finder candidate: **0.1.10**, uncommitted source; verification pending.
+- Current LinkedIn Job Finder candidate: **0.1.11**, uncommitted build-verified source; Chrome runtime acceptance pending.
 - Current Dev Toolz release: **1.8.7**; runtime source commit `fbdf954` on 2026-08-28.
 - Release tag: `dev-toolz-v1.8.7`.
 - GitHub Release: https://github.com/g-baskin/chrome-extension-boilerplate/releases/tag/dev-toolz-v1.8.7
@@ -30,7 +30,31 @@ This is the internal release and recovery record for every app in this repositor
 - `apps/dev-toolz/dist` remains ignored; the tracked archive is the recovery artifact.
 - Previous rollback source: commit `6ef12d5` for 1.7.19; no packaged 1.7.19 artifact is recorded.
 
-## LinkedIn Job Finder v0.1.10 — 2026-08-29 — Source candidate
+## LinkedIn Job Finder v0.1.11 — 2026-08-29 — Source candidate
+
+### Intent and scope
+
+- Expected outcome: discover visible split-pane list cards outside LinkedIn's `<main>` element while refusing recommendation-page navigation.
+- Require a readable current detail-pane job before collecting document-wide `/jobs/view/` and `currentJobId` anchors.
+- Preserve the 10-job cap, sequential scanning, restoration, no “Show all,” no auto-save, narrow permissions, and untouched Dev Toolz.
+- Primary risks: LinkedIn SPA timing and unrelated job anchors on supported split-pane pages.
+- SemVer rationale: forward patch because Chrome showed five visible cards while 0.1.10 discovered only the detail-title anchor.
+
+### Release identity
+
+- Previous candidate: 0.1.10, build verified but runtime rejected for incomplete card discovery.
+- Package, source manifest, and lockfile target 0.1.11.
+- `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
+- `npm run lint` and `npm run typecheck` passed for both workspaces.
+- Version synchronization and `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.11.
+
+### Verdict
+
+**Build verified; runtime pending.** Reload the exact 0.1.11 build and rescan the same split-pane results.
+
+## LinkedIn Job Finder v0.1.10 — 2026-08-29 — Runtime-rejected candidate
 
 ### Intent and scope
 
@@ -46,11 +70,21 @@ This is the internal release and recovery record for every app in this repositor
 - `npm test --workspace @chrome-extensions/linkedin-job-finder` passed: 21 tests across 5 files.
 - `npm run typecheck --workspace @chrome-extensions/linkedin-job-finder` passed.
 - `npm run lint` and `npm run typecheck` passed for both workspaces.
-- Production build: pending.
+- Package, source manifest, and lockfile synchronization passed for 0.1.10.
+- `git diff --check` passed.
+- `npm run build:linkedin-job-finder` passed: 43 modules transformed.
+- `apps/linkedin-job-finder/dist/manifest.json` matches source version 0.1.10.
+- Built popup contains the supported-page guidance.
+- Chrome partial smoke passed: 0.1.10 popup opened and displayed the supported-page guidance for a recommendation page with zero scanned cards.
+- Chrome split-pane smoke discovered one visible card and reported `0 eligible of 1 scanned`.
+- Chrome confirmed `0 could not be read`; the discovered card was extracted and evaluated successfully.
+- LinkedIn reported 88 total results, which are intentionally outside the bounded visible-card scope.
+- Chrome screenshot showed five visible list cards, confirming incomplete discovery.
+- Source commit: `9aaca93` (`Update LinkedIn scan guidance`).
 
 ### Verdict
 
-**Quality checks passed.** Production build remains pending; do not reload 0.1.10 yet.
+**Runtime rejected.** The exact build read its single discovered anchor, but missed four visible list cards outside `<main>`.
 
 ## LinkedIn Job Finder v0.1.9 — 2026-08-29 — Superseded build candidate
 

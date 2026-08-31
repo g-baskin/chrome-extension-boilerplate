@@ -68,15 +68,16 @@ if (!document.getElementById("linkedin-job-finder-root")) {
   };
 
   const findRenderedJobAnchor = (id: string): HTMLAnchorElement | undefined =>
-    [...document.querySelectorAll<HTMLAnchorElement>("main a[href*='/jobs/view/']")]
+    [...document.querySelectorAll<HTMLAnchorElement>("a[href*='/jobs/view/'], a[href*='currentJobId=']")]
       .find((anchor) => getLinkedInJobId(anchor.href) === id && anchor.getClientRects().length > 0 && !anchor.closest("[aria-hidden='true']"));
 
   const runVisibleScan = async (): Promise<ScanVisibleJobsResult> => {
     await loadState();
-    const anchors = [...document.querySelectorAll<HTMLAnchorElement>("main a[href*='/jobs/view/']")]
+    const originalId = getLinkedInJobId(location.href);
+    if (!originalId || !extractLinkedInJob(document, location.href)) return { scanned: 0, failed: 0, eligible: [] };
+    const anchors = [...document.querySelectorAll<HTMLAnchorElement>("a[href*='/jobs/view/'], a[href*='currentJobId=']")]
       .filter((anchor) => anchor.getClientRects().length > 0 && !anchor.closest("[aria-hidden='true']"));
     const ids = collectLinkedInJobIds(anchors.map((anchor) => anchor.href));
-    const originalId = getLinkedInJobId(location.href);
     let failed = 0;
     const eligible: ScanVisibleJobsResult["eligible"] = [];
 
